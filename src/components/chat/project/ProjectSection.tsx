@@ -264,16 +264,18 @@ export default function ProjectSection(props: ProjectSectionProps) {
         expanded={expanded}
         onToggle={() => setExpanded(!expanded)}
         className={cn(
-          "sticky z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel px-3",
+          "sticky z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel pl-3 pr-5",
           stickyHeaderCount === 0 ? "top-0" : stickyHeaderCount === 1 ? "top-8" : "top-16",
         )}
         action={
           <IconTip label={t("project.newProject")}>
             <button
+              type="button"
               onClick={onAddProject}
-              className="text-muted-foreground/60 hover:text-foreground transition-colors"
+              aria-label={t("project.newProject")}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-foreground"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-4 w-4" />
             </button>
           </IconTip>
         }
