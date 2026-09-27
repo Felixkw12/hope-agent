@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-09-28
+
 ### Fixed
 
 - **新建项目按钮**：扩大侧栏项目区新建按钮的点击区域，并与滚动条保持间距，便于点击。 (#761)
