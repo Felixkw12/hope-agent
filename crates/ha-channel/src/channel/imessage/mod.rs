@@ -14,6 +14,7 @@ pub mod media;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 
@@ -22,7 +23,7 @@ use ha_core::channel::types::*;
 
 /// Running account state for an iMessage account.
 struct RunningAccount {
-    client: client::IMessageClient,
+    client: Arc<client::IMessageClient>,
 }
 
 /// iMessage channel plugin implementation.
@@ -129,7 +130,10 @@ impl ChannelPlugin for IMessagePlugin {
         );
 
         // Start the RPC client
-        let imsg_client = client::IMessageClient::start(&imsg_path, db_path.as_deref())?;
+        let imsg_client = Arc::new(client::IMessageClient::start(
+            &imsg_path,
+            db_path.as_deref(),
+        )?);
 
         // 顺序至关重要：先启动 stdout 读取 loop（spawn 内 ready_tx 就绪），
         // 再调 watch_subscribe。否则 watch_subscribe 的 RPC response 在 read
@@ -375,6 +379,22 @@ impl ChannelPlugin for IMessagePlugin {
 
     #[cfg(target_os = "macos")]
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {
+        // Settings polls running accounts every 10 seconds. Reuse the status
+        // already negotiated by this account instead of starting another imsg.
+        let running_client = self
+            .accounts
+            .lock()
+            .await
+            .get(&account.id)
+            .map(|running| Arc::clone(&running.client));
+        if let Some(client) = running_client {
+            let (status, degraded_error) = client.status_snapshot().await;
+            return Ok(imessage_running_health(
+                status.as_ref(),
+                degraded_error.as_deref(),
+            ));
+        }
+
         let imsg_path = Self::extract_imsg_path(&account.credentials);
         let db_path = Self::extract_db_path(&account.credentials);
 
@@ -562,6 +582,28 @@ fn imessage_probe_label(status: Option<&client::IMessageStatus>) -> String {
         })
 }
 
+#[cfg(target_os = "macos")]
+fn imessage_running_health(
+    status: Option<&client::IMessageStatus>,
+    degraded_error: Option<&str>,
+) -> ChannelHealth {
+    ChannelHealth {
+        is_running: true,
+        last_probe: Some(chrono::Utc::now().to_rfc3339()),
+        probe_ok: Some(degraded_error.is_none()),
+        error: degraded_error.map(ha_core::logging::redact_sensitive),
+        uptime_secs: None,
+        // A stale status from before a failed restart cannot prove the current
+        // child binary is patched. The registry supplies worker uptime.
+        bot_name: Some(imessage_probe_label(if degraded_error.is_some() {
+            None
+        } else {
+            status
+        })),
+        capability_snapshot: None,
+    }
+}
+
 #[cfg(all(test, target_os = "macos"))]
 mod version_tests {
     use super::*;
@@ -583,6 +625,17 @@ mod version_tests {
         }))
         .contains("update imsg to 0.15.8+"));
         assert!(imessage_probe_label(None).contains("unverified"));
+        let vulnerable = client::IMessageStatus {
+            version: Some("0.15.5".to_string()),
+            ..Default::default()
+        };
+        assert!(imessage_running_health(Some(&vulnerable), None)
+            .bot_name
+            .unwrap()
+            .contains("update imsg to 0.15.8+"));
+        let degraded = imessage_running_health(Some(&vulnerable), Some("restart failed"));
+        assert_eq!(degraded.probe_ok, Some(false));
+        assert!(degraded.bot_name.unwrap().contains("unverified"));
     }
 }
 

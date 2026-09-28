@@ -8,6 +8,11 @@ use tokio_util::sync::CancellationToken;
 use super::traits::ChannelPlugin;
 use super::types::*;
 
+fn should_probe_in_health_list(channel_id: &ChannelId, is_running: bool) -> bool {
+    matches!(channel_id, ChannelId::Signal | ChannelId::WhatsApp)
+        || (is_running && matches!(channel_id, ChannelId::IMessage))
+}
+
 pub(crate) const DELIVERY_SURFACE_STATE_CHANGED_EVENT: &str =
     "channel:delivery_surface_state_changed";
 
@@ -201,9 +206,9 @@ impl ChannelRegistry {
     }
 
     /// Merge worker liveness with bounded adapter-owned runtime discovery.
-    /// Signal and WhatsApp are the only current external sidecars in this
-    /// account snapshot contract; probing every network adapter on the
-    /// settings poll would create unrelated traffic and latency.
+    /// Signal and WhatsApp need bounded external discovery. A running
+    /// iMessage account serves its already negotiated in-process status;
+    /// other network adapters stay out of the Settings poll.
     pub async fn health_with_probe(&self, account_id: &str) -> ChannelHealth {
         let mut health = self.health(account_id).await;
         let account = crate::config::cached_config()
@@ -213,8 +218,10 @@ impl ChannelRegistry {
         let Some(account) = account else {
             return health;
         };
-        let should_probe = matches!(account.channel_id, ChannelId::Signal | ChannelId::WhatsApp)
-            || !health.is_running;
+        let should_probe = matches!(
+            account.channel_id,
+            ChannelId::Signal | ChannelId::WhatsApp | ChannelId::IMessage
+        ) || !health.is_running;
         if !should_probe {
             return health;
         }
@@ -239,25 +246,19 @@ impl ChannelRegistry {
             .accounts
             .iter()
             .enumerate()
-            .map(|(index, account)| {
-                (
-                    index,
-                    account.id.clone(),
-                    matches!(account.channel_id, ChannelId::Signal | ChannelId::WhatsApp),
-                )
-            })
+            .map(|(index, account)| (index, account.id.clone(), account.channel_id.clone()))
             .collect::<Vec<_>>();
         // The Settings UI polls this aggregate endpoint every 10 seconds.
-        // Only external sidecars need runtime discovery; regular adapters use
-        // worker liveness and must not emit network probes merely because they
-        // are stopped. Bound sidecar fan-out so one slow account cannot turn
-        // the aggregate into N serial four-second waits.
+        // Sidecars need bounded discovery; iMessage is polled only while its
+        // worker runs, when probe reads cached status without a new process.
+        // Stopped iMessage accounts retain worker-only aggregate health.
         let mut health = stream::iter(accounts.into_iter().map(
-            |(index, account_id, should_probe)| async move {
-                let snapshot = if should_probe {
+            |(index, account_id, channel_id)| async move {
+                let worker = self.health(&account_id).await;
+                let snapshot = if should_probe_in_health_list(&channel_id, worker.is_running) {
                     self.health_with_probe(&account_id).await
                 } else {
-                    self.health(&account_id).await
+                    worker
                 };
                 (index, account_id, snapshot)
             },
@@ -395,5 +396,18 @@ impl ChannelRegistry {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod health_list_tests {
+    use super::*;
+
+    #[test]
+    fn running_imessage_uses_cached_probe_but_stopped_account_is_not_polled() {
+        assert!(should_probe_in_health_list(&ChannelId::IMessage, true));
+        assert!(!should_probe_in_health_list(&ChannelId::IMessage, false));
+        assert!(should_probe_in_health_list(&ChannelId::Signal, false));
+        assert!(!should_probe_in_health_list(&ChannelId::Telegram, true));
     }
 }
