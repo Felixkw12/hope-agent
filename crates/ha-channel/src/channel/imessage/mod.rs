@@ -379,20 +379,8 @@ impl ChannelPlugin for IMessagePlugin {
 
     #[cfg(target_os = "macos")]
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {
-        // Settings polls running accounts every 10 seconds. Reuse the status
-        // already negotiated by this account instead of starting another imsg.
-        let running_client = self
-            .accounts
-            .lock()
-            .await
-            .get(&account.id)
-            .map(|running| Arc::clone(&running.client));
-        if let Some(client) = running_client {
-            let (status, degraded_error) = client.status_snapshot().await;
-            return Ok(imessage_running_health(
-                status.as_ref(),
-                degraded_error.as_deref(),
-            ));
+        if let Some(health) = self.probe_running_cached(account).await? {
+            return Ok(health);
         }
 
         let imsg_path = Self::extract_imsg_path(&account.credentials);
@@ -451,6 +439,29 @@ impl ChannelPlugin for IMessagePlugin {
                 capability_snapshot: None,
             }),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn probe_running_cached(
+        &self,
+        account: &ChannelAccountConfig,
+    ) -> Result<Option<ChannelHealth>> {
+        // A concurrent Stop may remove this client between registry liveness
+        // checks. Never fall back to launching a temporary imsg here.
+        let running_client = self
+            .accounts
+            .lock()
+            .await
+            .get(&account.id)
+            .map(|running| Arc::clone(&running.client));
+        if let Some(client) = running_client {
+            let (status, degraded_error) = client.status_snapshot().await;
+            return Ok(Some(imessage_running_health(
+                status.as_ref(),
+                degraded_error.as_deref(),
+            )));
+        }
+        Ok(None)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -607,6 +618,23 @@ fn imessage_running_health(
 #[cfg(all(test, target_os = "macos"))]
 mod version_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cached_probe_after_stop_never_starts_temporary_imsg() {
+        let plugin = IMessagePlugin::new();
+        let account: ChannelAccountConfig = serde_json::from_value(serde_json::json!({
+            "id": "stopped-imsg",
+            "channelId": "imessage",
+            "label": "Stopped iMessage",
+            "credentials": { "imsgPath": "/nonexistent/imsg" }
+        }))
+        .unwrap();
+        assert!(plugin
+            .probe_running_cached(&account)
+            .await
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
     fn imsg_security_floor_is_diagnostic_only_and_conservative() {

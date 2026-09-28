@@ -13,6 +13,20 @@ fn should_probe_in_health_list(channel_id: &ChannelId, is_running: bool) -> bool
         || (is_running && matches!(channel_id, ChannelId::IMessage))
 }
 
+fn should_probe_account(
+    channel_id: &ChannelId,
+    is_running: bool,
+    include_stopped_imessage: bool,
+) -> bool {
+    if matches!(channel_id, ChannelId::IMessage) && !is_running && !include_stopped_imessage {
+        return false;
+    }
+    matches!(
+        channel_id,
+        ChannelId::Signal | ChannelId::WhatsApp | ChannelId::IMessage
+    ) || !is_running
+}
+
 pub(crate) const DELIVERY_SURFACE_STATE_CHANGED_EVENT: &str =
     "channel:delivery_surface_state_changed";
 
@@ -210,6 +224,14 @@ impl ChannelRegistry {
     /// iMessage account serves its already negotiated in-process status;
     /// other network adapters stay out of the Settings poll.
     pub async fn health_with_probe(&self, account_id: &str) -> ChannelHealth {
+        self.health_with_probe_mode(account_id, true).await
+    }
+
+    async fn health_with_probe_mode(
+        &self,
+        account_id: &str,
+        include_stopped_imessage: bool,
+    ) -> ChannelHealth {
         let mut health = self.health(account_id).await;
         let account = crate::config::cached_config()
             .channels
@@ -218,24 +240,40 @@ impl ChannelRegistry {
         let Some(account) = account else {
             return health;
         };
-        let should_probe = matches!(
-            account.channel_id,
-            ChannelId::Signal | ChannelId::WhatsApp | ChannelId::IMessage
-        ) || !health.is_running;
-        if !should_probe {
+        if !should_probe_account(
+            &account.channel_id,
+            health.is_running,
+            include_stopped_imessage,
+        ) {
             return health;
         }
         let Some(plugin) = self.get_plugin(&account.channel_id) else {
             return health;
         };
-        if let Ok(Ok(probe)) =
-            tokio::time::timeout(std::time::Duration::from_secs(4), plugin.probe(&account)).await
-        {
+        let cached_imessage = health.is_running && account.channel_id == ChannelId::IMessage;
+        let probe_result = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+            if cached_imessage {
+                plugin.probe_running_cached(&account).await
+            } else {
+                plugin.probe(&account).await.map(Some)
+            }
+        })
+        .await;
+        if let Ok(Ok(Some(probe))) = probe_result {
+            if cached_imessage {
+                let current = self.health(account_id).await;
+                if !current.is_running {
+                    return current;
+                }
+            }
             health.probe_ok = probe.probe_ok;
             health.bot_name = probe.bot_name;
             health.error = probe.error;
             health.last_probe = probe.last_probe;
             health.capability_snapshot = probe.capability_snapshot;
+        } else if cached_imessage {
+            // Stop may have removed the cached client after our worker read.
+            return self.health(account_id).await;
         }
         health
     }
@@ -256,7 +294,7 @@ impl ChannelRegistry {
             |(index, account_id, channel_id)| async move {
                 let worker = self.health(&account_id).await;
                 let snapshot = if should_probe_in_health_list(&channel_id, worker.is_running) {
-                    self.health_with_probe(&account_id).await
+                    self.health_with_probe_mode(&account_id, false).await
                 } else {
                     worker
                 };
@@ -409,5 +447,7 @@ mod health_list_tests {
         assert!(!should_probe_in_health_list(&ChannelId::IMessage, false));
         assert!(should_probe_in_health_list(&ChannelId::Signal, false));
         assert!(!should_probe_in_health_list(&ChannelId::Telegram, true));
+        assert!(!should_probe_account(&ChannelId::IMessage, false, false));
+        assert!(should_probe_account(&ChannelId::IMessage, false, true));
     }
 }
