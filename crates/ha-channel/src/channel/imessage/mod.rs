@@ -167,7 +167,21 @@ impl ChannelPlugin for IMessagePlugin {
                     status.protocol_version.unwrap_or_default(),
                     version,
                     status.methods.len()
-                )
+                );
+                match imsg_version_below_security_floor(&version) {
+                    Some(true) => app_warn!(
+                        "channel",
+                        "imessage",
+                        "imsg {} is below the reviewed security floor 0.15.8; update the local binary",
+                        version
+                    ),
+                    None => app_warn!(
+                        "channel",
+                        "imessage",
+                        "imsg security version could not be verified from protocol status"
+                    ),
+                    Some(false) => {}
+                }
             }
             Ok(None) if protocol_v1 => app_warn!(
                 "channel",
@@ -503,13 +517,73 @@ fn safe_version_token(value: &str) -> Option<String> {
     .then(|| trimmed.to_string())
 }
 
+/// A missing or nonstandard version is unknown, never treated as patched.
+/// Pre-release builds above the floor also remain unknown without a reviewed tag.
+#[cfg(target_os = "macos")]
+fn imsg_version_below_security_floor(value: &str) -> Option<bool> {
+    let token = safe_version_token(value)?;
+    let version = token.strip_prefix('v').unwrap_or(&token);
+    let version = version.split_once('+').map_or(version, |(core, _)| core);
+    let (core, prerelease) = version
+        .split_once('-')
+        .map_or((version, false), |(core, _)| (core, true));
+    let parts: Vec<_> = core.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let numbers: Vec<u64> = parts
+        .iter()
+        .map(|part| part.parse::<u64>())
+        .collect::<std::result::Result<_, _>>()
+        .ok()?;
+    let version = (numbers[0], numbers[1], numbers[2]);
+    let floor = (0, 15, 8);
+    if prerelease && version > floor {
+        return None;
+    }
+    Some(version < floor || (prerelease && version == floor))
+}
+
 #[cfg(target_os = "macos")]
 fn imessage_probe_label(status: Option<&client::IMessageStatus>) -> String {
     status
         .and_then(|value| value.version.as_deref())
         .and_then(safe_version_token)
-        .map(|version| format!("iMessage · imsg {version} · protocol 1"))
-        .unwrap_or_else(|| "iMessage · imsg legacy/undisclosed".to_string())
+        .map(|version| {
+            let notice = match imsg_version_below_security_floor(&version) {
+                Some(true) => " · update imsg to 0.15.8+",
+                Some(false) => "",
+                None => " · security version unverified",
+            };
+            format!("iMessage · imsg {version} · protocol 1{notice}")
+        })
+        .unwrap_or_else(|| {
+            "iMessage · imsg legacy/undisclosed · security version unverified".to_string()
+        })
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod version_tests {
+    use super::*;
+
+    #[test]
+    fn imsg_security_floor_is_diagnostic_only_and_conservative() {
+        for version in ["0.15.5", "v0.15.5", "0.15.7", "0.15.8-beta.1"] {
+            assert_eq!(imsg_version_below_security_floor(version), Some(true));
+        }
+        for version in ["0.15.8", "v0.15.9", "1.0.0"] {
+            assert_eq!(imsg_version_below_security_floor(version), Some(false));
+        }
+        for version in ["", "0.15", "0.15.9-beta.1", "invalid", "0.15.8 secret"] {
+            assert_eq!(imsg_version_below_security_floor(version), None);
+        }
+        assert!(imessage_probe_label(Some(&client::IMessageStatus {
+            version: Some("0.15.5".to_string()),
+            ..Default::default()
+        }))
+        .contains("update imsg to 0.15.8+"));
+        assert!(imessage_probe_label(None).contains("unverified"));
+    }
 }
 
 #[cfg(target_os = "macos")]
