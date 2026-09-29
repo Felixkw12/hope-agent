@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-09-30
+
 ### Fixed
 
 - **跨作用域记忆召回**：在当前 Agent 允许共享时，即使项目或 Agent 记忆占满召回上限，匹配的 Global 记忆仍可返回。 (#777)
