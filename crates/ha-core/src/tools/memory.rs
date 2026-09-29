@@ -777,7 +777,7 @@ mod tests {
         let project = (1..=10)
             .map(|id| entry(id, MemoryScope::Project { id: "p1".into() }))
             .collect();
-        let agent = (11..=20)
+        let agent: Vec<_> = (11..=20)
             .map(|id| {
                 entry(
                     id,
@@ -788,6 +788,12 @@ mod tests {
             })
             .collect();
         let global = vec![entry(318, MemoryScope::Global)];
+        let no_project_results =
+            merge_scoped_recall_results(vec![agent.clone(), global.clone()], 10);
+        assert_eq!(no_project_results.len(), 10);
+        assert_eq!(no_project_results[0].id, 11);
+        assert_eq!(no_project_results[1].id, 318);
+
         let results = merge_scoped_recall_results(vec![project, agent, global], 10);
         assert_eq!(results.len(), 10);
         assert_eq!(
