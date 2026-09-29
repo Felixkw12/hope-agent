@@ -63,6 +63,41 @@ impl AgentMemoryScopeAccess {
     }
 }
 
+/// Preserve scope priority without letting a full higher-priority scope hide
+/// every hit from the remaining scopes.
+fn merge_scoped_recall_results(
+    scoped_results: Vec<Vec<memory::MemoryEntry>>,
+    limit: usize,
+) -> Vec<memory::MemoryEntry> {
+    let mut results = Vec::with_capacity(limit.min(200));
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut scopes = scoped_results
+        .into_iter()
+        .map(Vec::into_iter)
+        .collect::<Vec<_>>();
+
+    for hits in &mut scopes {
+        if results.len() >= limit {
+            return results;
+        }
+        if let Some(hit) = hits.find(|hit| seen_ids.insert(hit.id)) {
+            results.push(hit);
+        }
+    }
+
+    for hits in scopes {
+        for hit in hits {
+            if seen_ids.insert(hit.id) {
+                results.push(hit);
+                if results.len() >= limit {
+                    return results;
+                }
+            }
+        }
+    }
+    results
+}
+
 pub(crate) fn ensure_session_memory_read(ctx: &super::ToolExecContext, tool: &str) -> Result<()> {
     let access = memory::effective_session_memory_access(
         ctx.session_id.as_deref(),
@@ -291,8 +326,7 @@ pub(crate) async fn tool_recall_memory(
             let backend = crate::get_memory_backend()
                 .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-            let mut results = Vec::new();
-            let mut seen_ids = std::collections::HashSet::new();
+            let mut scoped_results = Vec::new();
             for scope in readable_scopes {
                 let query = MemorySearchQuery {
                     query: query_text_for_blocking.clone(),
@@ -302,18 +336,9 @@ pub(crate) async fn tool_recall_memory(
                     agent_id: None,
                     limit: Some(limit),
                 };
-                for memory in backend.search(&query)? {
-                    if seen_ids.insert(memory.id) {
-                        results.push(memory);
-                        if results.len() >= limit {
-                            break;
-                        }
-                    }
-                }
-                if results.len() >= limit {
-                    break;
-                }
+                scoped_results.push(backend.search(&query)?);
             }
+            let results = merge_scoped_recall_results(scoped_results, limit);
 
             let mut output = String::new();
             let mem_count = results.len();
@@ -725,6 +750,52 @@ mod tests {
                     id: "ha-main".into()
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn recall_reserves_a_result_for_each_matching_readable_scope() {
+        fn entry(id: i64, scope: MemoryScope) -> memory::MemoryEntry {
+            memory::MemoryEntry {
+                id,
+                memory_type: MemoryType::Reference,
+                scope,
+                content: format!("memory {id}"),
+                tags: Vec::new(),
+                source: "user".into(),
+                source_session_id: None,
+                pinned: false,
+                created_at: String::new(),
+                updated_at: String::new(),
+                relevance_score: None,
+                retrieval_evidence: None,
+                attachment_path: None,
+                attachment_mime: None,
+            }
+        }
+
+        let project = (1..=10)
+            .map(|id| entry(id, MemoryScope::Project { id: "p1".into() }))
+            .collect();
+        let agent = (11..=20)
+            .map(|id| {
+                entry(
+                    id,
+                    MemoryScope::Agent {
+                        id: "ha-main".into(),
+                    },
+                )
+            })
+            .collect();
+        let global = vec![entry(318, MemoryScope::Global)];
+        let results = merge_scoped_recall_results(vec![project, agent, global], 10);
+        assert_eq!(results.len(), 10);
+        assert_eq!(
+            results.iter().map(|hit| hit.id).collect::<Vec<_>>()[..3],
+            [1, 11, 318]
+        );
+        assert!(
+            merge_scoped_recall_results(vec![vec![entry(318, MemoryScope::Global)]], 0).is_empty()
         );
     }
 }
