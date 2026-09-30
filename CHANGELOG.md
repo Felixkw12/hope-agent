@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **停止回复后继续对话**：OpenAI Chat 兼容模型的请求历史不再包含空的 assistant 消息，已有会话可继续发送消息。 (#783)
+
 ## [0.58.0] - 2026-09-30
 
 ### Fixed
