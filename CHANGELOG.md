@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **GPT-6.1 Sol、GPT-6 Sol/Luna 与 Claude Opus/Sonnet 5.5 预设**：可在模型目录中搜索选择，并使用对应的 OpenAI Responses 或 Anthropic 接口。 (#794)
+
+### Changed
+
+- **Together AI 模型目录**：移除已下线的 Kimi K2.6 Serverless 预设。 (#794)
+
 ### Fixed
 
 - **停止回复后继续对话**：OpenAI Chat 兼容模型的请求历史不再包含空的 assistant 消息，已有会话可继续发送消息。 (#783)
