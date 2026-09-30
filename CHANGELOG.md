@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-10-01
+
 ### Added
 
 - **GPT-6.1 Sol、GPT-6 Sol/Luna 与 Claude Opus/Sonnet 5.5 预设**：可在模型目录中搜索选择，并使用对应的 OpenAI Responses 或 Anthropic 接口。 (#794)
