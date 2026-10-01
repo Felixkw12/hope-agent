@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-10-02
+
+### Changed
+
+- **产品文档与截图**：默认展示英文文档，保留完整中文入口，并更新主要功能截图。 (#796)
+
 ### Fixed
 
 - **天气城市查询**：含汉字的城市名可正常查询，上游位置缺少国家名时不再导致整批查询失败。 (#797)
