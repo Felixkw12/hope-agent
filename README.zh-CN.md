@@ -25,6 +25,14 @@
   <a href="./README.md">English</a> · <strong>简体中文</strong>
 </p>
 
+### 3 分钟认识 Hope Agent
+
+中文配音与字幕，带你了解目标推进、工具执行、长期记忆、知识空间与设计空间的桌面工作流。
+
+https://github.com/user-attachments/assets/e3370d21-2255-412f-aafb-1fc75f60330a
+
+<p align="center"><sub>宣传片使用真实 Hope Agent 组件与固定演示数据制作。</sub></p>
+
 <p align="center">
   <a href="assets/screenshots/chat-home.png">
     <img src="assets/screenshots/chat-home.png" alt="Hope Agent 整理 Kanso 发布方案，同时展示项目会话侧栏、交付清单与悬浮会话状态" width="100%">
