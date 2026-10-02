@@ -25,6 +25,14 @@
   <strong>English</strong> · <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
+### Watch Hope Agent in 3 minutes
+
+English narration and captions. Explore goals, tools, memory, knowledge, and design in one desktop workflow.
+
+https://github.com/user-attachments/assets/e1728465-0f5b-47a6-8af8-b9806067a6b4
+
+<p align="center"><sub>Product presentation built with real Hope Agent components and fixed demo data.</sub></p>
+
 <p align="center">
   <a href="assets/screenshots/chat-home.png">
     <img src="assets/screenshots/chat-home.png" alt="Hope Agent preparing the Kanso launch pack with project conversations, a deliverables table, and floating session status" width="100%">
