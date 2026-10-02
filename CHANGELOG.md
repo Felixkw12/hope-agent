@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-10-03
+
+### Changed
+
+- **双语产品导览**：项目首页新增对应语言的三分钟产品视频，标明演示数据，并提供官网入口。 (#800)
+
 ## [0.60.0] - 2026-10-02
 
 ### Changed
