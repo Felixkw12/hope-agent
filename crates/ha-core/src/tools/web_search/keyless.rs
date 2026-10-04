@@ -46,29 +46,33 @@ pub(super) async fn search_keyless(
     timeout_secs: u64,
     usage_ctx: &WebSearchUsageContext,
 ) -> Result<Vec<SearchResult>> {
-    try_engines(timeout_secs, |engine, budget| async move {
-        let started = Instant::now();
-        let result = within_timeout(
-            budget,
-            search_engine(engine, query, count, params, budget.as_secs().max(1)),
-        )
-        .await;
-        let mut event =
-            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_WEB_SEARCH);
-        event.operation = Some("keyless_search".into());
-        event.source = Some("web_search".into());
-        event.provider_id = Some("keyless".into());
-        event.provider_name = Some(engine.name().into());
-        event.session_id = usage_ctx.session_id.clone();
-        event.agent_id = usage_ctx.agent_id.clone();
-        event.duration_ms = Some(started.elapsed().as_millis() as u64);
-        event.success = result.as_ref().is_ok_and(|results| !results.is_empty());
-        event.error = result.as_ref().err().map(ToString::to_string);
-        // No query text, upstream content, credentials, or estimated tokens.
-        event.metadata = Some(serde_json::json!({ "engine": engine.name() }));
-        crate::model_usage::record_model_usage_best_effort(event);
-        result
-    })
+    try_engines(
+        timeout_secs,
+        eligible_engines(params),
+        |engine, budget| async move {
+            let started = Instant::now();
+            let result = within_timeout(
+                budget,
+                search_engine(engine, query, count, params, budget.as_secs().max(1)),
+            )
+            .await;
+            let mut event =
+                crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_WEB_SEARCH);
+            event.operation = Some("keyless_search".into());
+            event.source = Some("web_search".into());
+            event.provider_id = Some("keyless".into());
+            event.provider_name = Some(engine.name().into());
+            event.session_id = usage_ctx.session_id.clone();
+            event.agent_id = usage_ctx.agent_id.clone();
+            event.duration_ms = Some(started.elapsed().as_millis() as u64);
+            event.success = result.as_ref().is_ok_and(|results| !results.is_empty());
+            event.error = result.as_ref().err().map(ToString::to_string);
+            // No query text, upstream content, credentials, or estimated tokens.
+            event.metadata = Some(serde_json::json!({ "engine": engine.name() }));
+            crate::model_usage::record_model_usage_best_effort(event);
+            result
+        },
+    )
     .await
 }
 
@@ -81,16 +85,27 @@ where
         .unwrap_or_else(|_| Err(anyhow::anyhow!("request timed out")))
 }
 
-async fn try_engines<F, Fut>(timeout_secs: u64, mut attempt: F) -> Result<Vec<SearchResult>>
+fn eligible_engines(params: &SearchParams) -> &'static [Engine] {
+    if params.freshness.is_some() {
+        &[Engine::Brave]
+    } else {
+        &[Engine::Brave, Engine::So]
+    }
+}
+
+async fn try_engines<F, Fut>(
+    timeout_secs: u64,
+    engines: &[Engine],
+    mut attempt: F,
+) -> Result<Vec<SearchResult>>
 where
     F: FnMut(Engine, Duration) -> Fut,
     Fut: Future<Output = Result<Vec<SearchResult>>>,
 {
     let started = Instant::now();
     let total = Duration::from_secs(timeout_secs.max(1));
-    let engines = [Engine::Brave, Engine::So];
     let mut failures = Vec::new();
-    for (index, engine) in engines.into_iter().enumerate() {
+    for (index, &engine) in engines.iter().enumerate() {
         let remaining = total.saturating_sub(started.elapsed());
         if remaining.is_zero() {
             failures.push("search timeout budget exhausted".to_string());
@@ -323,47 +338,59 @@ mod tests {
 
     #[tokio::test]
     async fn failed_first_engine_falls_back_with_reserved_budget() {
-        let results = try_engines(4, |engine, budget| async move {
-            match engine {
-                Engine::Brave => {
-                    assert!(budget <= Duration::from_secs(2));
-                    bail!("HTTP 429")
+        let results = try_engines(
+            4,
+            eligible_engines(&SearchParams::default()),
+            |engine, budget| async move {
+                match engine {
+                    Engine::Brave => {
+                        assert!(budget <= Duration::from_secs(2));
+                        bail!("HTTP 429")
+                    }
+                    Engine::So => Ok(vec![SearchResult {
+                        title: "Result".into(),
+                        url: "https://example.com".into(),
+                        snippet: String::new(),
+                        source: engine.name().into(),
+                    }]),
                 }
-                Engine::So => Ok(vec![SearchResult {
-                    title: "Result".into(),
-                    url: "https://example.com".into(),
-                    snippet: String::new(),
-                    source: engine.name().into(),
-                }]),
-            }
-        })
+            },
+        )
         .await
         .unwrap();
         assert_eq!(results[0].source, "360 Search");
-        let error = try_engines(4, |_, _| async { Ok(Vec::new()) })
-            .await
-            .err()
-            .unwrap();
+        let error = try_engines(
+            4,
+            eligible_engines(&SearchParams::default()),
+            |_, _| async { Ok(Vec::new()) },
+        )
+        .await
+        .err()
+        .unwrap();
         assert!(error.to_string().contains("Brave Web: no results"));
         assert!(error.to_string().contains("360 Search: no results"));
     }
 
     #[tokio::test]
     async fn timed_out_first_engine_leaves_time_for_fallback() {
-        let results = try_engines(1, |engine, budget| async move {
-            within_timeout(budget, async move {
-                match engine {
-                    Engine::Brave => std::future::pending().await,
-                    Engine::So => Ok(vec![SearchResult {
-                        title: "Fallback".into(),
-                        url: "https://example.com".into(),
-                        snippet: String::new(),
-                        source: engine.name().into(),
-                    }]),
-                }
-            })
-            .await
-        })
+        let results = try_engines(
+            1,
+            eligible_engines(&SearchParams::default()),
+            |engine, budget| async move {
+                within_timeout(budget, async move {
+                    match engine {
+                        Engine::Brave => std::future::pending().await,
+                        Engine::So => Ok(vec![SearchResult {
+                            title: "Fallback".into(),
+                            url: "https://example.com".into(),
+                            snippet: String::new(),
+                            source: engine.name().into(),
+                        }]),
+                    }
+                })
+                .await
+            },
+        )
         .await
         .unwrap();
         assert_eq!(results[0].source, "360 Search");
@@ -371,18 +398,46 @@ mod tests {
 
     #[tokio::test]
     async fn success_stops_before_contacting_the_other_engine() {
-        let results = try_engines(1, |engine, _| async move {
-            assert!(matches!(engine, Engine::Brave));
-            Ok(vec![SearchResult {
-                title: "Primary".into(),
-                url: "https://example.com".into(),
-                snippet: String::new(),
-                source: engine.name().into(),
-            }])
-        })
+        let results = try_engines(
+            1,
+            eligible_engines(&SearchParams::default()),
+            |engine, _| async move {
+                assert!(matches!(engine, Engine::Brave));
+                Ok(vec![SearchResult {
+                    title: "Primary".into(),
+                    url: "https://example.com".into(),
+                    snippet: String::new(),
+                    source: engine.name().into(),
+                }])
+            },
+        )
         .await
         .unwrap();
         assert_eq!(results[0].source, "Brave Web");
+    }
+
+    #[tokio::test]
+    async fn freshness_filters_reserve_the_full_budget_for_brave() {
+        let params = SearchParams {
+            freshness: Some("week".into()),
+            ..SearchParams::default()
+        };
+        let error = try_engines(4, eligible_engines(&params), |engine, budget| async move {
+            assert!(
+                matches!(engine, Engine::Brave),
+                "Ineligible fallback was attempted"
+            );
+            assert!(
+                budget > Duration::from_secs(3),
+                "Eligible engine lost half its budget"
+            );
+            bail!("HTTP 429")
+        })
+        .await
+        .err()
+        .unwrap();
+        assert!(error.to_string().contains("Brave Web: HTTP 429"));
+        assert!(!error.to_string().contains("360 Search"));
     }
 
     #[test]
