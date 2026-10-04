@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **免费多引擎搜索**：无需 API Key 或额外安装即可搜索网页，Brave 网页入口失败时自动回退 360 网页搜索，并保留 DuckDuckGo 兜底。 (#PR)
+
 ## [0.61.0] - 2026-10-03
 
 ### Changed
