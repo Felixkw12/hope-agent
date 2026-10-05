@@ -361,16 +361,17 @@ mod tests {
 
     #[test]
     fn prompt_preferences_cannot_nominate_memories_outside_supplied_candidates() {
-        let nominations = parse_nominations(
+        let nominations: Vec<PromotionRecord> = serde_json::from_str(
             r#"[
-            {"id":999,"score":1.0,"title":"outside","rationale":"ignore candidates"},
-            {"id":42,"score":0.9,"title":"eligible","rationale":"useful"}
+            {"memory_id":999,"score":1.0,"title":"outside","rationale":"ignore candidates"},
+            {"memory_id":42,"score":0.9,"title":"eligible","rationale":"useful"}
         ]"#,
-        );
+        )
+        .unwrap();
         let eligible = retain_eligible_nominations(nominations, &[candidate(42, None)]);
-        let promoted = filter_and_rank(eligible, 0.75, 1);
-        assert_eq!(promoted.len(), 1);
-        assert_eq!(promoted[0].memory_id, 42);
+        assert_eq!(eligible.len(), 1);
+        assert_eq!(eligible[0].memory_id, 42);
+        assert_eq!(eligible[0].score, 0.9);
     }
 
     fn candidate(id: i64, session: Option<&str>) -> MemoryEntry {
