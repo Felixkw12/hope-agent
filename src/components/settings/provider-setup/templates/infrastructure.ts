@@ -575,16 +575,6 @@ export const infrastructureTemplates: ProviderTemplate[] = [
         costOutput: 4.4,
       },
       {
-        id: "deepseek-ai/DeepSeek-V4-Pro-0813",
-        name: "DeepSeek V4 Pro 0813",
-        inputTypes: ["text"],
-        contextWindow: 1048576,
-        maxTokens: 8192,
-        reasoning: true,
-        costInput: 1.32,
-        costOutput: 3.96,
-      },
-      {
         id: "zai-org/GLM-5.1",
         name: "GLM 5.1 FP4",
         inputTypes: ["text"],
@@ -1322,28 +1312,8 @@ export const infrastructureTemplates: ProviderTemplate[] = [
     apiKeyPlaceholder: "fw_...",
     requiresApiKey: true,
     models: [
-      {
-        id: "accounts/fireworks/routers/glm-5p2-fast",
-        name: "GLM 5.2 Fast",
-        inputTypes: ["text"],
-        contextWindow: 256000,
-        maxTokens: 256000,
-        reasoning: true,
-        costInput: 2.1,
-        costOutput: 6.6,
-      },
-      {
-        id: "accounts/fireworks/routers/kimi-k2p6-turbo",
-        name: "Kimi K2.6 Fast",
-        inputTypes: ["text", "image"],
-        contextWindow: 262144,
-        maxTokens: 256000,
-        reasoning: false,
-        costInput: 2.0,
-        costOutput: 8.0,
-      },
-      // Serverless kimi-k2p6 retires on 2026-09-25. Dedicated user
-      // deployments remain editable; unverified router aliases are retained.
+      // Remove confirmed retired serverless IDs only. Saved configs and
+      // dedicated deployments remain editable; other router aliases need proof.
       {
         id: "accounts/fireworks/routers/kimi-k2p5-turbo",
         name: "Kimi K2.5 Turbo (Fire Pass)",

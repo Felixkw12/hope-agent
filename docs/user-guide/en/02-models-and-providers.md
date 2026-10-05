@@ -26,6 +26,8 @@ This chapter explains how to get the AI working with a model: connecting a model
 
 Hope Agent connects to each vendor's large models through a "**provider + API key**" pairing. It ships with **about 50 provider templates and several hundred preset models**, and also supports any custom OpenAI-compatible or Anthropic endpoint. Templates change as releases add or retire options, so the list shown by Add Provider is authoritative.
 
+New Fireworks templates exclude retired GLM 5.2 Fast and Kimi K2.6 Turbo/Fast. Existing connections and dedicated deployments keep their settings; if you use a retired serverless model, choose a replacement according to the provider’s current availability.
+
 **Where**: Settings → **Model Configuration** → **Providers** tab → click "**Add Provider**" in the top right.
 
 The first page of the add wizard offers five paths:
@@ -265,7 +267,7 @@ Image and audio generation share one **provider → models → per-function defa
 
 **Where**: Settings → **Model Configuration** → **Media Generation Models** tab. Click "Add Provider" to connect one of 27 built-in templates in a single click. Templates are grouped by modality and searchable — both brand names and model IDs match, so typing `seedream` or `flux` jumps straight to the right provider:
 
-- **Image**: OpenAI (gpt-image), Google (Gemini / Imagen, supporting image editing and multiple reference images), Fal (Flux), SiliconFlow (Qwen-Image), Zhipu (CogView), Tongyi Wanxiang, Volcengine (Seedream), Tencent Hunyuan, StepFun, Baidu Qianfan, SenseNova, Black Forest Labs (FLUX), Stability AI, Replicate, Together, xAI (Grok Image), Recraft, Kling, iFlytek
+- **Image**: OpenAI (gpt-image), Google (Gemini, supporting image editing and multiple reference images), Fal (Flux), SiliconFlow (Qwen-Image), Zhipu (CogView), Tongyi Wanxiang, Volcengine (Seedream), Tencent Hunyuan, StepFun, Baidu Qianfan, SenseNova, Black Forest Labs (FLUX), Stability AI, Replicate, Together, xAI (Grok Image), Recraft, Kling, iFlytek
 - **Audio**: ElevenLabs (TTS + music + sound effects), MiniMax (speech + music), OpenAI (TTS), Cartesia, Deepgram, Fish Audio, Hume, Volcengine Doubao Speech, Stability (sound effects), Kling
 - **Self-hosted**: "Custom (OpenAI-compatible)"
 
@@ -296,6 +298,8 @@ In a conversation, just say "draw me a …" to trigger `image_generate`, or "gen
 The image and audio artifacts of the [Design Space](06-design-space.md) run on the same configuration, and its generate dialog lets you pick aspect ratio, resolution, audio kind, voice and duration directly (shown according to model capabilities). **When no provider is configured yet**, those entry points show a guidance card that deep-links straight to the settings page in Step 1.
 
 > When adjusting settings through conversation, the AI can only change the default chains and the parameters in the table above; provider entries (including API keys) **can only be changed in the GUI**.
+
+New image templates exclude retired DALL·E 3 and Google Imagen 4 / older Gemini image presets; Google uses `gemini-3.1-flash-image` / `gemini-3-pro-image`. Choose replacements for existing configurations according to your provider’s current availability. GPT Image 1 shuts down on October 23, 2026; check replacement models and required parameters before then. Catalog maintenance does not establish actual image quality.
 
 ---
 

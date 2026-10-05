@@ -26,6 +26,8 @@
 
 Hope Agent 通过「**服务商 + API Key**」接入各家大模型。内置**约 50 个服务商模板、数百个预设模型**,也支持自定义任意 OpenAI 兼容或 Anthropic 端点。模板会随版本增删,以添加服务商时的实际列表为准。
 
+Fireworks 新建模板已移除退役的 GLM 5.2 Fast 和 Kimi K2.6 Turbo/Fast。既有连接与专属部署仍保留原设置；如使用已退役的无服务器型号，请按服务商当前可用型号自行选择替代。
+
 **入口**:设置 → **模型配置** → **服务商** 标签页 → 点右上角「**添加服务商**」。
 
 添加向导首页提供五条路径:
@@ -265,7 +267,7 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 **入口**:设置 → **模型配置** → **媒体生成模型** 标签页。点「添加服务商」从 27 个内置模板一键接入,模板按模态分组并支持搜索——品牌名和模型 ID 都能搜(例如输入 `seedream` 或 `flux` 直接定位到对应服务商):
 
-- **图像**:OpenAI(gpt-image)、Google(Gemini / Imagen,支持改图和多参考图)、Fal(Flux)、SiliconFlow(Qwen-Image)、智谱(CogView)、通义万相、火山引擎(Seedream)、腾讯混元、阶跃星辰、百度千帆、商汤日日新、Black Forest Labs(FLUX)、Stability AI、Replicate、Together、xAI(Grok Image)、Recraft、快手可灵、科大讯飞
+- **图像**:OpenAI(gpt-image)、Google(Gemini,支持改图和多参考图)、Fal(Flux)、SiliconFlow(Qwen-Image)、智谱(CogView)、通义万相、火山引擎(Seedream)、腾讯混元、阶跃星辰、百度千帆、商汤日日新、Black Forest Labs(FLUX)、Stability AI、Replicate、Together、xAI(Grok Image)、Recraft、快手可灵、科大讯飞
 - **音频**:ElevenLabs(TTS + 音乐 + 音效)、MiniMax(语音 + 音乐)、OpenAI(TTS)、Cartesia、Deepgram、Fish Audio、Hume、火山豆包语音、Stability(音效)、快手可灵
 - **自建端点**:「自定义(OpenAI 兼容)」
 
@@ -296,6 +298,8 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 [设计空间](06-设计空间.md)的图像 / 音频产物走同一套配置,生成对话框里可直接选宽高比、分辨率、音频类型、音色和时长(按模型能力显示)。**还没配任何服务商时**,这些入口会显示引导卡片,点一下就跳到上面第一步的设置页。
 
 > 通过对话调设置时,AI 只能改默认调用链和上表里的参数;服务商条目(含 API Key)**只能在 GUI 里改**。
+
+图像新建模板已移除退役的 DALL·E 3 和 Google Imagen 4 / 旧 Gemini 图像预设，Google 使用 `gemini-3.1-flash-image` / `gemini-3-pro-image`。现有配置需由你按服务商当前可用性选择替换；GPT Image 1 将于 2026-10-23 下线，届时前请核对替代模型与所需参数。目录更新不代表真实图像质量已验收。
 
 ---
 

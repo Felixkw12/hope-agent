@@ -28,13 +28,12 @@ describe("provider template lifecycle hygiene", () => {
     expect(cerebras.models.some((model) => model.id === "gpt-oss-120b")).toBe(true)
     const together = PROVIDER_TEMPLATES.find((provider) => provider.key === "together")!
     expect(together.models.some((model) => model.id === "deepseek-ai/DeepSeek-V4-Pro")).toBe(false)
-    expect(
-      together.models.find((model) => model.id === "deepseek-ai/DeepSeek-V4-Pro-0813"),
-    ).toMatchObject({
-      contextWindow: 1_048_576,
-      costInput: 1.32,
-      costOutput: 3.96,
-    })
+    for (const retired of ["moonshotai/Kimi-K2.6", "deepseek-ai/DeepSeek-V4-Pro-0813"]) {
+      expect(
+        together.models.some((model) => model.id === retired),
+        retired,
+      ).toBe(false)
+    }
     expect(
       PROVIDER_TEMPLATES.some(
         (provider) =>
@@ -152,11 +151,17 @@ describe("provider template lifecycle hygiene", () => {
     )
   })
 
-  it("removes the exactly identified retiring Fireworks serverless preset", () => {
+  it("removes the exactly identified retired Fireworks serverless presets", () => {
     const provider = PROVIDER_TEMPLATES.find((template) => template.key === "fireworks")
     expect(
       provider?.models.some((model) => model.id === "accounts/fireworks/models/kimi-k2p6"),
     ).toBe(false)
+    for (const retired of [
+      "accounts/fireworks/routers/glm-5p2-fast",
+      "accounts/fireworks/routers/kimi-k2p6-turbo",
+    ]) {
+      expect(provider?.models.some((model) => model.id === retired), retired).toBe(false)
+    }
     expect(
       provider?.models.some((model) => model.id === "accounts/fireworks/routers/kimi-k2p5-turbo"),
     ).toBe(true)
