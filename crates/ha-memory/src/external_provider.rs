@@ -1907,7 +1907,7 @@ fn apply_external_memory_providers_patch(
             if let Some(kind) = provider_patch.kind {
                 if existing.kind != kind {
                     bail!(
-                        "external memory provider '{}' kind is immutable; remove it with `removeProviderIds` and add a new provider so credentials and sync state are cleared",
+                        "external memory provider '{}' kind is immutable; remove it with `removeProviderIds` and add a new provider; credentials are cleared but unresolved sync state is preserved",
                         provider_patch.id
                     );
                 }
@@ -2025,8 +2025,15 @@ fn prune_orphan_provider_files(valid_ids: &std::collections::HashSet<String>) ->
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(err) => return Err(anyhow!("read {}: {err}", dir.display())),
     };
+    let mut first_error = None;
     for entry in entries {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                first_error.get_or_insert_with(|| anyhow!("read directory entry: {error}"));
+                continue;
+            }
+        };
         let Some(name) = entry.file_name().to_str().map(ToString::to_string) else {
             continue;
         };
@@ -2040,13 +2047,24 @@ fn prune_orphan_provider_files(valid_ids: &std::collections::HashSet<String>) ->
         if validate_provider_id(provider_id).is_err() || valid_ids.contains(provider_id) {
             continue;
         }
+        // Removing a connection revokes its credential file, not an uncertain
+        // remote write. Keep pending or unreadable ledgers as tombstones so a
+        // later connection with the same ID cannot silently replay the batch.
+        if name.ends_with(".sync.json") && !sync_ledger_reset_snapshot(&entry.path()).0 {
+            continue;
+        }
         match fs::remove_file(entry.path()) {
             Ok(()) => {}
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-            Err(err) => return Err(anyhow!("remove {}: {err}", entry.path().display())),
+            Err(err) => {
+                // A broken auxiliary entry must not stop revocation of the
+                // remaining orphan credential files, regardless of dir order.
+                first_error
+                    .get_or_insert_with(|| anyhow!("remove {}: {err}", entry.path().display()));
+            }
         }
     }
-    Ok(())
+    first_error.map_or(Ok(()), Err)
 }
 
 fn persist_credentials(

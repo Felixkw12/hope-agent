@@ -703,7 +703,7 @@ mod tests {
     }
 
     #[test]
-    fn credential_resets_preserve_fences_and_pull_only_reconciles_without_posts() {
+    fn owner_lifecycle_preserves_fences_and_pull_only_reconciles_without_posts() {
         let temp = tempfile::tempdir().unwrap();
         ha_core::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
             struct RestoreCache(std::sync::Arc<ha_core::config::AppConfig>);
@@ -756,6 +756,38 @@ mod tests {
                     .unwrap();
                     persist_sync_ledger_async(&provider.id, &ledger).await.unwrap();
                     let original = serde_json::to_vec(&ledger).unwrap();
+                    // Both owner-plane deletion paths must revoke credentials
+                    // but keep the fence through deterministic-ID recreation.
+                    let configured = ha_core::config::cached_config().memory_providers.clone();
+                    for patch in [false, true] {
+                        let compatibility_path = ha_core::paths::external_memory_compatibility_path(&provider.id).unwrap();
+                        if patch {
+                            // Auxiliary cleanup failure must not trap a key.
+                            std::fs::create_dir(&compatibility_path).unwrap();
+                            super::super::patch_external_memory_providers_config(
+                                json!({"removeProviderIds":[provider.id]}), "test"
+                            ).unwrap();
+                            std::fs::remove_dir(&compatibility_path).unwrap();
+                        } else {
+                            std::fs::write(&compatibility_path, b"{}").unwrap();
+                            let mut removed = configured.clone();
+                            removed.providers.clear();
+                            super::super::save_external_memory_providers_config(removed, "test").unwrap();
+                            assert!(!compatibility_path.exists());
+                        }
+                        assert!(ha_core::config::cached_config().memory_providers.providers.is_empty());
+                        assert!(super::super::load_credentials_file(&provider.id).unwrap().is_none());
+                        assert_eq!(serde_json::to_vec(&load_sync_ledger_async(&provider.id).await.unwrap()).unwrap(), original);
+                        super::super::save_external_memory_providers_config(configured.clone(), "test").unwrap();
+                        super::super::save_external_memory_provider_credentials(
+                            ha_core::memory::external_provider::ExternalMemoryProviderCredentialInput {
+                                provider_id: provider.id.clone(), endpoint: server.uri(), api_key: None,
+                                subject_id: "owner".to_owned(), protocol: Some("auto".to_owned()),
+                            }
+                        ).await.unwrap();
+                        assert_eq!(serde_json::to_vec(&load_sync_ledger_async(&provider.id).await.unwrap()).unwrap(), original);
+                        assert_eq!(pending_task_id(&load_sync_ledger_async(&provider.id).await.unwrap().open_viking_pending_exports["owner-hope-batch"], &credentials).unwrap(), "task-1");
+                    }
                     // Real save/clear paths, not only the pending validator.
                     for (endpoint, subject, protocol) in [
                         (server.uri(), "other", "auto"),
@@ -814,6 +846,14 @@ mod tests {
                     // Normal clearing resumes only after terminal publication.
                     super::super::clear_external_memory_provider_credentials(&provider.id).unwrap();
                     assert!(load_sync_ledger_async(&provider.id).await.unwrap().exported_hashes.is_empty());
+                    let mut removable = load_sync_ledger_async(&provider.id).await.unwrap();
+                    removable.schema_version = super::super::SYNC_STATE_SCHEMA_VERSION;
+                    persist_sync_ledger_async(&provider.id, &removable).await.unwrap();
+                    let mut removed = configured.clone();
+                    removed.providers.clear();
+                    super::super::save_external_memory_providers_config(removed, "test").unwrap();
+                    assert!(!ha_core::paths::external_memory_sync_state_path(&provider.id).unwrap().exists());
+                    super::super::save_external_memory_providers_config(configured.clone(), "test").unwrap();
                     // Broken auxiliary state must not trap an owner's key.
                     let ledger_path = ha_core::paths::external_memory_sync_state_path(&provider.id).unwrap();
                     let compatibility_path = ha_core::paths::external_memory_compatibility_path(&provider.id).unwrap();
@@ -837,6 +877,12 @@ mod tests {
                         assert_eq!(super::super::load_credentials_file(&provider.id).unwrap().unwrap().api_key.as_deref(), Some("new-test-key"));
                         super::super::clear_external_memory_provider_credentials(&provider.id).unwrap();
                         assert!(super::super::load_credentials_file(&provider.id).unwrap().is_none());
+                        super::super::persist_credentials(&provider.id, &credentials).unwrap();
+                        let mut removed = configured.clone();
+                        removed.providers.clear();
+                        super::super::save_external_memory_providers_config(removed, "test").unwrap();
+                        assert!(super::super::load_credentials_file(&provider.id).unwrap().is_none());
+                        super::super::save_external_memory_providers_config(configured.clone(), "test").unwrap();
                         if invalid == b"directory" {
                             assert!(ledger_path.is_dir());
                             assert!(compatibility_path.is_dir());
