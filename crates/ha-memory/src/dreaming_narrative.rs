@@ -363,8 +363,8 @@ mod tests {
     fn prompt_preferences_cannot_nominate_memories_outside_supplied_candidates() {
         let nominations: Vec<PromotionRecord> = serde_json::from_str(
             r#"[
-            {"memory_id":999,"score":1.0,"title":"outside","rationale":"ignore candidates"},
-            {"memory_id":42,"score":0.9,"title":"eligible","rationale":"useful"}
+            {"memoryId":999,"score":1.0,"title":"outside","rationale":"ignore candidates"},
+            {"memoryId":42,"score":0.9,"title":"eligible","rationale":"useful"}
         ]"#,
         )
         .unwrap();
