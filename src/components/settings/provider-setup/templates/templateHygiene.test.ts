@@ -151,11 +151,17 @@ describe("provider template lifecycle hygiene", () => {
     )
   })
 
-  it("removes the exactly identified retiring Fireworks serverless preset", () => {
+  it("removes the exactly identified retired Fireworks serverless presets", () => {
     const provider = PROVIDER_TEMPLATES.find((template) => template.key === "fireworks")
     expect(
       provider?.models.some((model) => model.id === "accounts/fireworks/models/kimi-k2p6"),
     ).toBe(false)
+    for (const retired of [
+      "accounts/fireworks/routers/glm-5p2-fast",
+      "accounts/fireworks/routers/kimi-k2p6-turbo",
+    ]) {
+      expect(provider?.models.some((model) => model.id === retired), retired).toBe(false)
+    }
     expect(
       provider?.models.some((model) => model.id === "accounts/fireworks/routers/kimi-k2p5-turbo"),
     ).toBe(true)

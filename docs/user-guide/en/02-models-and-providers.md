@@ -26,6 +26,8 @@ This chapter explains how to get the AI working with a model: connecting a model
 
 Hope Agent connects to each vendor's large models through a "**provider + API key**" pairing. It ships with **about 50 provider templates and several hundred preset models**, and also supports any custom OpenAI-compatible or Anthropic endpoint. Templates change as releases add or retire options, so the list shown by Add Provider is authoritative.
 
+New Fireworks templates exclude retired GLM 5.2 Fast and Kimi K2.6 Turbo/Fast. Existing connections and dedicated deployments keep their settings; if you use a retired serverless model, choose a replacement according to the provider’s current availability.
+
 **Where**: Settings → **Model Configuration** → **Providers** tab → click "**Add Provider**" in the top right.
 
 The first page of the add wizard offers five paths:
