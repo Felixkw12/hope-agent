@@ -96,34 +96,58 @@ async fn sync_open_viking(
         .await
         .map_err(|error| failure(outcome.clone(), error))?;
 
-    let sync_result = async {
-        if provider.sync_policy.imports_external_memory() {
-            pull_memory_files(
-                provider,
-                &credentials,
-                protocol,
-                &endpoint,
-                &client,
-                &mut ledger,
-                &mut outcome,
-            )
-            .await?;
-        }
-        if provider.sync_policy.sends_local_memory() {
-            push_memory_sessions(
-                provider,
-                &credentials,
-                &endpoint,
-                &client,
-                &mut ledger,
-                &mut outcome,
-            )
-            .await?;
-        }
-        Ok(())
-    }
+    let sync_result = sync_operations(
+        provider,
+        &credentials,
+        protocol,
+        &endpoint,
+        &client,
+        &mut ledger,
+        &mut outcome,
+    )
     .await;
     finish_sync_with_ledger_checkpoint(&provider.id, &ledger, outcome, sync_result).await
+}
+
+async fn sync_operations(
+    provider: &ExternalMemoryProviderConfig,
+    credentials: &ExternalMemoryProviderCredentials,
+    protocol: OpenVikingProtocol,
+    endpoint: &str,
+    client: &Client,
+    ledger: &mut ExternalMemoryProviderSyncLedger,
+    outcome: &mut ExternalMemoryAdapterSyncOutcome,
+) -> std::result::Result<(), ExternalMemoryAdapterSyncFailure> {
+    // Existing writes must reach a terminal state even if the owner switches
+    // to PullOnly. The live policy still controls all new memory writes.
+    for session_id in ledger
+        .open_viking_pending_exports
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>()
+    {
+        reconcile_pending_export(credentials, endpoint, client, ledger, outcome, &session_id)
+            .await?;
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
+            .map_err(|error| failure(outcome.clone(), error))?;
+    }
+    if provider.sync_policy.imports_external_memory() {
+        pull_memory_files(
+            provider,
+            credentials,
+            protocol,
+            endpoint,
+            client,
+            ledger,
+            outcome,
+        )
+        .await?;
+    }
+    if provider.sync_policy.sends_local_memory() {
+        push_memory_sessions(provider, credentials, endpoint, client, ledger, outcome).await?;
+    }
+    Ok(())
 }
 
 async fn pull_memory_files(
@@ -209,20 +233,6 @@ async fn push_memory_sessions(
     ledger: &mut ExternalMemoryProviderSyncLedger,
     outcome: &mut ExternalMemoryAdapterSyncOutcome,
 ) -> std::result::Result<(), ExternalMemoryAdapterSyncFailure> {
-    // Reconcile before reading another snapshot or issuing a mutation. This
-    // includes previous processes' accepted tasks and uncertain writes.
-    for session_id in ledger
-        .open_viking_pending_exports
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>()
-    {
-        reconcile_pending_export(credentials, endpoint, client, ledger, outcome, &session_id)
-            .await?;
-        persist_sync_ledger_async(&provider.id, ledger)
-            .await
-            .map_err(|error| failure(outcome.clone(), error))?;
-    }
     let (local_memories, total) = load_local_memory_snapshot(LOCAL_MEMORY_SCAN_LIMIT)
         .await
         .map_err(|error| failure(outcome.clone(), error))?;
@@ -678,6 +688,122 @@ mod tests {
         let old: ExternalMemoryProviderSyncLedger =
             serde_json::from_value(json!({"schemaVersion":1})).unwrap();
         assert!(old.open_viking_pending_exports.is_empty());
+    }
+
+    #[test]
+    fn credential_resets_preserve_fences_and_pull_only_reconciles_without_posts() {
+        let temp = tempfile::tempdir().unwrap();
+        ha_core::test_support::with_env_vars(&[("HA_DATA_DIR", temp.path())], || {
+            struct RestoreCache(std::sync::Arc<ha_core::config::AppConfig>);
+            impl Drop for RestoreCache {
+                fn drop(&mut self) {
+                    ha_core::config::replace_cache_for_test((*self.0).clone());
+                }
+            }
+            let _restore = RestoreCache(ha_core::config::cached_config());
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let server = MockServer::start().await;
+                    let credentials = ExternalMemoryProviderCredentials {
+                        endpoint: server.uri(),
+                        ..credentials()
+                    };
+                    let provider = ExternalMemoryProviderConfig {
+                        id: "pending-openviking".to_owned(),
+                        kind: ExternalMemoryProviderKind::OpenViking,
+                        display_name: "OpenViking".to_owned(),
+                        enabled: true,
+                        sync_policy: ha_core::memory::ExternalMemorySyncPolicy::PullOnly,
+                        endpoint_configured: true,
+                        last_sync_at: None,
+                        last_error: None,
+                    };
+                    let mut config = ha_core::config::AppConfig::default();
+                    config.ssrf.trusted_hosts = vec!["127.0.0.1".to_owned()];
+                    config.memory_providers.enabled = true;
+                    config.memory_providers.providers = vec![provider.clone()];
+                    std::fs::write(
+                        temp.path().join("config.json"),
+                        serde_json::to_vec(&config).unwrap(),
+                    )
+                    .unwrap();
+                    ha_core::config::replace_cache_for_test(config);
+                    super::super::persist_credentials(&provider.id, &credentials).unwrap();
+                    let mut ledger = pending_ledger();
+                    ledger.schema_version = super::super::SYNC_STATE_SCHEMA_VERSION;
+                    ledger.open_viking_pending_exports
+                        .get_mut("owner-hope-batch")
+                        .unwrap()
+                        .credential_fingerprint = compatibility_credential_fingerprint(
+                        ExternalMemoryProviderKind::OpenViking,
+                        &credentials,
+                    )
+                    .unwrap();
+                    persist_sync_ledger_async(&provider.id, &ledger).await.unwrap();
+                    let original = serde_json::to_vec(&ledger).unwrap();
+                    // Real save/clear paths, not only the pending validator.
+                    for (endpoint, subject, protocol) in [
+                        (server.uri(), "other", "auto"),
+                        (format!("{}/other", server.uri()), "owner", "v1"),
+                    ] {
+                        super::super::save_external_memory_provider_credentials(
+                            ha_core::memory::external_provider::ExternalMemoryProviderCredentialInput {
+                                provider_id: provider.id.clone(),
+                                endpoint,
+                                api_key: None,
+                                subject_id: subject.to_owned(),
+                                protocol: Some(protocol.to_owned()),
+                            },
+                        )
+                        .await
+                        .unwrap();
+                        let preserved = load_sync_ledger_async(&provider.id).await.unwrap();
+                        assert_eq!(serde_json::to_vec(&preserved).unwrap(), original);
+                    }
+                    super::super::clear_external_memory_provider_credentials(&provider.id).unwrap();
+                    assert!(super::super::load_credentials_file(&provider.id).unwrap().is_none());
+                    let mut ledger = load_sync_ledger_async(&provider.id).await.unwrap();
+                    assert_eq!(serde_json::to_vec(&ledger).unwrap(), original);
+                    super::super::persist_credentials(&provider.id, &credentials).unwrap();
+                    Mock::given(method("GET"))
+                        .and(path("/api/v1/tasks/task-1"))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(completed()))
+                        .expect(1)
+                        .mount(&server)
+                        .await;
+                    Mock::given(method("GET"))
+                        .and(path("/api/v1/fs/ls"))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status":"ok","result":[]})))
+                        .expect(1)
+                        .mount(&server)
+                        .await;
+                    let mut outcome = ExternalMemoryAdapterSyncOutcome::default();
+                    sync_operations(
+                        &provider,
+                        &credentials,
+                        OpenVikingProtocol::V1TildeCurrentUser,
+                        &credentials.endpoint,
+                        &external_http_client().unwrap(),
+                        &mut ledger,
+                        &mut outcome,
+                    )
+                    .await
+                    .unwrap();
+                    assert_eq!(outcome.exported_memory_count, 1);
+                    assert!(ledger.open_viking_pending_exports.is_empty());
+                    assert!(load_sync_ledger_async(&provider.id)
+                        .await.unwrap().open_viking_pending_exports.is_empty());
+                    let requests = server.received_requests().await.unwrap();
+                    assert_eq!(requests.len(), 2);
+                    assert!(requests.iter().all(|r| r.method == "GET"));
+                    // Normal clearing resumes only after terminal publication.
+                    super::super::clear_external_memory_provider_credentials(&provider.id).unwrap();
+                    assert!(load_sync_ledger_async(&provider.id).await.unwrap().exported_hashes.is_empty());
+                });
+        });
     }
 
     #[tokio::test]

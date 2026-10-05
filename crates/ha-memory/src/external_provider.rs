@@ -1595,9 +1595,12 @@ pub async fn save_external_memory_provider_credentials(
         } else {
             None
         };
+        let clear_ledger = reset_sync_ledger && sync_ledger_reset_allowed(&provider_id)?;
         persist_credentials(&provider_id, &credentials)?;
         if reset_sync_ledger {
-            remove_sync_ledger(&provider_id)?;
+            if clear_ledger {
+                remove_sync_ledger(&provider_id)?;
+            }
             remove_compatibility_report(&provider_id)?;
         }
 
@@ -1677,12 +1680,15 @@ pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<(
     let previous_credential_bytes = read_optional_file(&path)?;
     let previous_ledger_bytes = read_optional_file(&ledger_path)?;
     let previous_compatibility_bytes = read_optional_file(&compatibility_path)?;
+    let clear_ledger = sync_ledger_reset_allowed(provider_id)?;
     match fs::remove_file(&path) {
         Ok(()) => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => return Err(anyhow!("remove {}: {err}", path.display())),
     }
-    remove_sync_ledger(provider_id)?;
+    if clear_ledger {
+        remove_sync_ledger(provider_id)?;
+    }
     remove_compatibility_report(provider_id)?;
 
     let provider_id_owned = provider_id.to_string();
@@ -1726,6 +1732,15 @@ fn restore_optional_secure_file(path: &std::path::Path, bytes: Option<&[u8]>) ->
             Err(err) => Err(anyhow!("remove {} during rollback: {err}", path.display())),
         },
     }
+}
+
+fn sync_ledger_reset_allowed(provider_id: &str) -> Result<bool> {
+    // Changing or clearing credentials revokes access, but does not resolve a
+    // remote write. Preserve the ledger until the original identity can finish
+    // reconciliation; otherwise reconnecting could replay that batch.
+    Ok(load_sync_ledger(provider_id)?
+        .open_viking_pending_exports
+        .is_empty())
 }
 
 fn remove_sync_ledger(provider_id: &str) -> Result<()> {
