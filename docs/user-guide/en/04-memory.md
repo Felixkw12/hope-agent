@@ -82,6 +82,10 @@ The AI can automatically extract facts worth remembering during a conversation. 
 
 Automatic extraction runs in the background without interrupting the chat (triggered after a certain amount of conversation accumulates). The review queue lives in the Memory Management tab and shows the number of items awaiting confirmation.
 
+**Writing preferences**: In Settings → Memory → Memory Settings, independently choose System default / Concise / Detailed for conversation extraction, profile synthesis, and Dreaming, with up to 512 characters of supplemental guidance. Each Agent can override individual steps or inherit the global default. Changes apply to the next relevant operation.
+
+Profile preferences apply only to **manual synthesis**; idle/scheduled profiles keep using rules without model calls. Agent profiles use that Agent’s preferences; Global/Project profiles use global defaults. The shared Dreaming diary also uses global defaults, while Agent overrides only affect its candidates’ titles and descriptions. Preferences cannot replace output formats, enable disabled features, or override source/privacy rules. They add no model calls but may increase prompt tokens.
+
 ---
 
 ## 4.5 Advanced: offline consolidation, profile, and correction (Dreaming)

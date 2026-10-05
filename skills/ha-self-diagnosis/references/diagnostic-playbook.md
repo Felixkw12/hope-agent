@@ -78,6 +78,8 @@ gotcha that most often explains a failure. Open every DB read-only.
 
 ### Chat Engine / Session / Compaction / Memory — `chat-engine.md`, `session.md`, `context-compact.md`, `memory.md`
 
+- 记忆写作风格未生效 → 核查 `memory.promptPreferences.{extraction,profile,dreaming}` 及 Agent 各环节覆盖（缺失/null 继承，显式 default 恢复系统风格）；画像只在手动模型重写中生效，自动画像零 LLM，共享 Dreaming 日记只用全局偏好。入口：`memory/prompt_preferences.rs`、`ha-memory/src/extract.rs`、`dreaming_profile.rs`、`dreaming_narrative.rs`。只核查阶段与风格，不记录补充要求正文。
+
 - Entry: `chat_engine/engine.rs`, `chat_engine/stop.rs`, `chat_engine/finalize/`, `session/db.rs`, `session/autonomy_pause.rs`, `tools/session_continue.rs`, `context_compact/compact.rs`, `memory/sqlite/`, `memory_extract.rs`.
 - State: `sessions.db` (`context_json` snapshot, `messages.stream_status`, `messages.is_side_snapshot`, `chat_turns`, `session_autonomy_pauses`, session-free `runtime_control_epochs`), `memory.db`. Config: `compact.*` (`cacheTtlSecs=300`, override at usage ≥0.95), `memoryExtract.*`, `memory_embedding`.
 - Grep: `category IN ('chat_engine','memory')`; compaction logs under `category='context'` (source `compact`) plus `category='agent'` (`reactive_microcompact`).

@@ -8763,6 +8763,25 @@
       "timeout": "Thời gian chờ yêu cầu (giây)",
       "defaultDuration": "Thời lượng mặc định",
       "durationOption": "{{seconds}} giây"
+    },
+    "memoryPromptPreferences": {
+      "title": "Tùy chọn cách viết bộ nhớ",
+      "desc": "Đặt phong cách và hướng dẫn theo bước (tối đa 512 ký tự). Giữ nguyên quy tắc đầu ra và riêng tư. Token có thể tăng nhưng không thêm lượt gọi mô hình.",
+      "extraction": "Trích xuất hội thoại",
+      "profile": "Tổng hợp hồ sơ",
+      "dreaming": "Sắp xếp Dreaming",
+      "inherit": "Dùng mặc định chung",
+      "default": "Mặc định hệ thống",
+      "concise": "Ngắn gọn",
+      "detailed": "Chi tiết",
+      "supplemental": "Hướng dẫn bổ sung",
+      "profileNote": "Chỉ áp dụng khi viết lại hồ sơ thủ công. Hồ sơ tự động dùng quy tắc, không gọi mô hình. Agent dùng tùy chọn riêng; Global/Project dùng mặc định chung.",
+      "dreamingNote": "Nhật ký chung dùng mặc định chung. Tùy chọn Agent chỉ ảnh hưởng tiêu đề và mô tả của các mục ứng viên của nó, không ảnh hưởng nhật ký hoặc quyết định sắp xếp.",
+      "error": "Không thể tải hoặc lưu tùy chọn",
+      "retry": "Thử lại",
+      "save": "Lưu tùy chọn",
+      "saving": "Đang lưu…",
+      "saved": "Đã lưu"
     }
   },
   "shortcuts": {

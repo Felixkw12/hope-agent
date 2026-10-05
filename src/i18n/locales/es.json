@@ -8763,6 +8763,25 @@
       "timeout": "Tiempo de espera de la solicitud (segundos)",
       "defaultDuration": "Duración predeterminada",
       "durationOption": "{{seconds}} s"
+    },
+    "memoryPromptPreferences": {
+      "title": "Preferencias de escritura de memoria",
+      "desc": "Configura estilo e indicaciones por etapa (hasta 512 caracteres). Se mantienen las reglas de salida y privacidad. Pueden aumentar los tokens, sin llamadas adicionales al modelo.",
+      "extraction": "Extracción de conversaciones",
+      "profile": "Síntesis del perfil",
+      "dreaming": "Consolidación Dreaming",
+      "inherit": "Usar valor global",
+      "default": "Predeterminado del sistema",
+      "concise": "Conciso",
+      "detailed": "Detallado",
+      "supplemental": "Indicaciones adicionales",
+      "profileNote": "Solo reescritura manual del perfil. Los perfiles automáticos usan reglas sin llamar al modelo. Agent usa sus preferencias; Global/Project usan las globales.",
+      "dreamingNote": "El diario compartido usa preferencias globales. Las opciones Agent solo afectan a títulos y descripciones de sus candidatos, no al diario ni a decisiones de consolidación.",
+      "error": "No se pudieron cargar o guardar las preferencias",
+      "retry": "Reintentar",
+      "save": "Guardar preferencias",
+      "saving": "Guardando…",
+      "saved": "Guardado"
     }
   },
   "shortcuts": {

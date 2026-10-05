@@ -8763,6 +8763,25 @@
       "timeout": "リクエストタイムアウト（秒）",
       "defaultDuration": "デフォルトの長さ",
       "durationOption": "{{seconds}} 秒"
+    },
+    "memoryPromptPreferences": {
+      "title": "記憶の文章設定",
+      "desc": "段階ごとに文体と補足（最大512文字）を設定します。出力とプライバシー規則は維持されます。トークン数は増える場合がありますが、モデル呼び出しは増えません。",
+      "extraction": "会話からの抽出",
+      "profile": "プロフィール生成",
+      "dreaming": "Dreaming 整理",
+      "inherit": "全体設定を使用",
+      "default": "システム標準",
+      "concise": "簡潔",
+      "detailed": "詳細",
+      "supplemental": "補足事項",
+      "profileNote": "手動のプロフィール書き直しのみ。自動生成はルール処理でモデルを呼び出しません。Agent は自身の設定、Global/Project は全体設定を使用します。",
+      "dreamingNote": "共有日記は全体設定を使用します。Agent の上書きは自身の候補のタイトルと説明にのみ適用され、日記や整理の判定には影響しません。",
+      "error": "設定の読み込みまたは保存に失敗しました",
+      "retry": "再試行",
+      "save": "設定を保存",
+      "saving": "保存中…",
+      "saved": "保存済み"
     }
   },
   "shortcuts": {
