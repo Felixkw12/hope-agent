@@ -802,6 +802,39 @@ mod tests {
                     // Normal clearing resumes only after terminal publication.
                     super::super::clear_external_memory_provider_credentials(&provider.id).unwrap();
                     assert!(load_sync_ledger_async(&provider.id).await.unwrap().exported_hashes.is_empty());
+                    // Broken auxiliary state must not trap an owner's key.
+                    let ledger_path = ha_core::paths::external_memory_sync_state_path(&provider.id).unwrap();
+                    let compatibility_path = ha_core::paths::external_memory_compatibility_path(&provider.id).unwrap();
+                    for invalid in [b"not JSON".as_slice(), b"{\"schemaVersion\":99}".as_slice(), b"directory".as_slice()] {
+                        if invalid == b"directory" {
+                            std::fs::create_dir(&ledger_path).unwrap();
+                            std::fs::create_dir(&compatibility_path).unwrap();
+                        } else {
+                            std::fs::write(&ledger_path, invalid).unwrap();
+                        }
+                        super::super::persist_credentials(&provider.id, &credentials).unwrap();
+                        super::super::save_external_memory_provider_credentials(
+                            ha_core::memory::external_provider::ExternalMemoryProviderCredentialInput {
+                                provider_id: provider.id.clone(),
+                                endpoint: server.uri(),
+                                api_key: Some("new-test-key".to_owned()),
+                                subject_id: "changed-owner".to_owned(),
+                                protocol: Some("v1".to_owned()),
+                            },
+                        ).await.unwrap();
+                        assert_eq!(super::super::load_credentials_file(&provider.id).unwrap().unwrap().api_key.as_deref(), Some("new-test-key"));
+                        super::super::clear_external_memory_provider_credentials(&provider.id).unwrap();
+                        assert!(super::super::load_credentials_file(&provider.id).unwrap().is_none());
+                        if invalid == b"directory" {
+                            assert!(ledger_path.is_dir());
+                            assert!(compatibility_path.is_dir());
+                            std::fs::remove_dir(&ledger_path).unwrap();
+                            std::fs::remove_dir(&compatibility_path).unwrap();
+                        } else {
+                            assert_eq!(std::fs::read(&ledger_path).unwrap(), invalid);
+                            std::fs::remove_file(&ledger_path).unwrap();
+                        }
+                    }
                 });
         });
     }

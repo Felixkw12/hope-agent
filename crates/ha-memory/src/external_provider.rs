@@ -1585,22 +1585,21 @@ pub async fn save_external_memory_provider_credentials(
         let ledger_path = external_memory_sync_state_path(&provider_id)?;
         let compatibility_path = external_memory_compatibility_path(&provider_id)?;
         let previous_credential_bytes = read_optional_file(&credential_path)?;
-        let previous_ledger_bytes = if reset_sync_ledger {
-            read_optional_file(&ledger_path)?
+        let (clear_ledger, previous_ledger_bytes) = if reset_sync_ledger {
+            sync_ledger_reset_snapshot(&ledger_path)
         } else {
-            None
+            (false, None)
         };
-        let previous_compatibility_bytes = if reset_sync_ledger {
-            read_optional_file(&compatibility_path)?
+        let (clear_compatibility, previous_compatibility_bytes) = if reset_sync_ledger {
+            auxiliary_reset_snapshot(&compatibility_path)
         } else {
-            None
+            (false, None)
         };
-        let clear_ledger = reset_sync_ledger && sync_ledger_reset_allowed(&provider_id)?;
         persist_credentials(&provider_id, &credentials)?;
-        if reset_sync_ledger {
-            if clear_ledger {
-                remove_sync_ledger(&provider_id)?;
-            }
+        if clear_ledger {
+            remove_sync_ledger(&provider_id)?;
+        }
+        if clear_compatibility {
             remove_compatibility_report(&provider_id)?;
         }
 
@@ -1620,8 +1619,10 @@ pub async fn save_external_memory_provider_credentials(
             },
         ) {
             restore_optional_secure_file(&credential_path, previous_credential_bytes.as_deref())?;
-            if reset_sync_ledger {
+            if clear_ledger {
                 restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+            }
+            if clear_compatibility {
                 restore_optional_secure_file(
                     &compatibility_path,
                     previous_compatibility_bytes.as_deref(),
@@ -1678,9 +1679,9 @@ pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<(
     let ledger_path = external_memory_sync_state_path(provider_id)?;
     let compatibility_path = external_memory_compatibility_path(provider_id)?;
     let previous_credential_bytes = read_optional_file(&path)?;
-    let previous_ledger_bytes = read_optional_file(&ledger_path)?;
-    let previous_compatibility_bytes = read_optional_file(&compatibility_path)?;
-    let clear_ledger = sync_ledger_reset_allowed(provider_id)?;
+    let (clear_ledger, previous_ledger_bytes) = sync_ledger_reset_snapshot(&ledger_path);
+    let (clear_compatibility, previous_compatibility_bytes) =
+        auxiliary_reset_snapshot(&compatibility_path);
     match fs::remove_file(&path) {
         Ok(()) => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
@@ -1689,7 +1690,9 @@ pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<(
     if clear_ledger {
         remove_sync_ledger(provider_id)?;
     }
-    remove_compatibility_report(provider_id)?;
+    if clear_compatibility {
+        remove_compatibility_report(provider_id)?;
+    }
 
     let provider_id_owned = provider_id.to_string();
     if let Err(err) =
@@ -1707,8 +1710,15 @@ pub fn clear_external_memory_provider_credentials(provider_id: &str) -> Result<(
         })
     {
         restore_optional_secure_file(&path, previous_credential_bytes.as_deref())?;
-        restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
-        restore_optional_secure_file(&compatibility_path, previous_compatibility_bytes.as_deref())?;
+        if clear_ledger {
+            restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+        }
+        if clear_compatibility {
+            restore_optional_secure_file(
+                &compatibility_path,
+                previous_compatibility_bytes.as_deref(),
+            )?;
+        }
         return Err(err).context("clear external memory provider readiness");
     }
     Ok(())
@@ -1734,13 +1744,32 @@ fn restore_optional_secure_file(path: &std::path::Path, bytes: Option<&[u8]>) ->
     }
 }
 
-fn sync_ledger_reset_allowed(provider_id: &str) -> Result<bool> {
+fn auxiliary_reset_snapshot(path: &Path) -> (bool, Option<Vec<u8>>) {
+    match read_optional_file(path) {
+        Ok(bytes) => (true, bytes),
+        // Auxiliary state must not prevent credential revocation/rotation.
+        // Preserve it untouched; its own reader will continue to fail closed.
+        Err(_) => (false, None),
+    }
+}
+
+fn sync_ledger_reset_snapshot(path: &Path) -> (bool, Option<Vec<u8>>) {
     // Changing or clearing credentials revokes access, but does not resolve a
     // remote write. Preserve the ledger until the original identity can finish
     // reconciliation; otherwise reconnecting could replay that batch.
-    Ok(load_sync_ledger(provider_id)?
-        .open_viking_pending_exports
-        .is_empty())
+    let (readable, bytes) = auxiliary_reset_snapshot(path);
+    let clear = readable
+        && bytes.as_ref().is_none_or(|bytes| {
+            serde_json::from_slice::<ExternalMemoryProviderSyncLedger>(bytes).is_ok_and(|ledger| {
+                ledger.schema_version == SYNC_STATE_SCHEMA_VERSION
+                    && ledger.open_viking_pending_exports.is_empty()
+            })
+        });
+    if clear {
+        (true, bytes)
+    } else {
+        (false, None)
+    }
 }
 
 fn remove_sync_ledger(provider_id: &str) -> Result<()> {
