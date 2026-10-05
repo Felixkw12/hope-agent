@@ -8763,6 +8763,25 @@
       "timeout": "Had masa permintaan (saat)",
       "defaultDuration": "Tempoh lalai",
       "durationOption": "{{seconds}} saat"
+    },
+    "memoryPromptPreferences": {
+      "title": "Keutamaan penulisan ingatan",
+      "desc": "Tetapkan gaya dan panduan bagi setiap langkah (sehingga 512 aksara). Peraturan output dan privasi kekal. Token boleh bertambah tanpa panggilan model tambahan.",
+      "extraction": "Pengekstrakan perbualan",
+      "profile": "Sintesis profil",
+      "dreaming": "Penyusunan Dreaming",
+      "inherit": "Gunakan lalai global",
+      "default": "Lalai sistem",
+      "concise": "Ringkas",
+      "detailed": "Terperinci",
+      "supplemental": "Panduan tambahan",
+      "profileNote": "Hanya untuk penulisan semula profil manual. Profil automatik menggunakan peraturan tanpa panggilan model. Agent menggunakan pilihannya; Global/Project menggunakan lalai global.",
+      "dreamingNote": "Diari bersama menggunakan lalai global. Pilihan Agent hanya mempengaruhi tajuk dan penerangan calonnya, bukan diari atau keputusan penyusunan.",
+      "error": "Gagal memuatkan atau menyimpan keutamaan",
+      "retry": "Cuba semula",
+      "save": "Simpan keutamaan",
+      "saving": "Menyimpan…",
+      "saved": "Disimpan"
     }
   },
   "shortcuts": {

@@ -8763,6 +8763,25 @@
       "timeout": "Request timeout (seconds)",
       "defaultDuration": "Default duration",
       "durationOption": "{{seconds}}s"
+    },
+    "memoryPromptPreferences": {
+      "title": "Memory writing preferences",
+      "desc": "Set style and guidance per step (up to 512 characters). Output/privacy rules remain fixed. Prompt tokens may increase; no extra model calls.",
+      "extraction": "Conversation extraction",
+      "profile": "Profile synthesis",
+      "dreaming": "Dreaming",
+      "inherit": "Use global default",
+      "default": "System default",
+      "concise": "Concise",
+      "detailed": "Detailed",
+      "supplemental": "Supplemental guidance",
+      "profileNote": "Manual profile rewrites only. Automatic profiles use rules without model calls. Agent profiles use that Agent’s preferences; Global/Project use global defaults.",
+      "dreamingNote": "The shared diary uses global defaults. Agent overrides only affect its candidates’ titles and descriptions, not the diary or consolidation decisions.",
+      "error": "Could not load or save preferences",
+      "retry": "Retry",
+      "save": "Save preferences",
+      "saving": "Saving…",
+      "saved": "Saved"
     }
   },
   "shortcuts": {

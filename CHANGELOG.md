@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **记忆写作偏好**：对话提取、手动画像和 Dreaming 可分别选择精简/详细及补充要求，支持全局默认与 Agent 覆盖，保留原有隐私与调用边界。
+
 ## [0.62.0] - 2026-10-05
 
 ### Added
