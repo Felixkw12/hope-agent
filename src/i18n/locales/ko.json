@@ -8763,6 +8763,25 @@
       "timeout": "요청 제한 시간(초)",
       "defaultDuration": "기본 길이",
       "durationOption": "{{seconds}}초"
+    },
+    "memoryPromptPreferences": {
+      "title": "기억 문체 설정",
+      "desc": "단계별 문체와 추가 지침을 설정합니다(최대 512자). 출력과 개인정보 규칙은 유지됩니다. 토큰이 늘 수 있지만 모델 호출은 늘지 않습니다.",
+      "extraction": "대화 추출",
+      "profile": "프로필 생성",
+      "dreaming": "Dreaming 정리",
+      "inherit": "전역 기본값 사용",
+      "default": "시스템 기본값",
+      "concise": "간결하게",
+      "detailed": "자세하게",
+      "supplemental": "추가 지침",
+      "profileNote": "수동 프로필 재작성에만 적용됩니다. 자동 프로필은 규칙 기반이며 모델을 호출하지 않습니다. Agent는 자체 설정, Global/Project는 전역 기본값을 사용합니다.",
+      "dreamingNote": "공유 일기는 전역 기본값을 사용합니다. Agent 재정의는 자신의 후보 제목과 설명에만 적용되며 일기나 정리 결정에는 영향을 주지 않습니다.",
+      "error": "설정을 불러오거나 저장하지 못했습니다",
+      "retry": "다시 시도",
+      "save": "설정 저장",
+      "saving": "저장 중…",
+      "saved": "저장됨"
     }
   },
   "shortcuts": {

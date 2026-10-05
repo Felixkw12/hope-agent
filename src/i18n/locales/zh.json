@@ -8763,6 +8763,25 @@
       "timeout": "请求超时（秒）",
       "defaultDuration": "默认时长",
       "durationOption": "{{seconds}} 秒"
+    },
+    "memoryPromptPreferences": {
+      "title": "记忆写作偏好",
+      "desc": "按环节设置风格与补充要求（最多 512 字）。输出与隐私规则不变；可增加提示词 Token，不增加模型调用。",
+      "extraction": "对话提取",
+      "profile": "画像合成",
+      "dreaming": "Dreaming 整理",
+      "inherit": "使用全局默认",
+      "default": "系统默认",
+      "concise": "精简",
+      "detailed": "详细",
+      "supplemental": "补充要求",
+      "profileNote": "仅手动合成画像时生效。自动画像保持规则整理、零模型调用；Agent 画像用该 Agent 的偏好，Global/Project 用全局默认。",
+      "dreamingNote": "共享日记用全局默认；Agent 覆盖仅影响自身候选的标题与说明，不影响共享日记或整理裁决。",
+      "error": "加载或保存偏好失败",
+      "retry": "重试",
+      "save": "保存偏好",
+      "saving": "保存中…",
+      "saved": "已保存"
     }
   },
   "shortcuts": {

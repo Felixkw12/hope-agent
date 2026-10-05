@@ -232,7 +232,7 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              Full content is still retrievable via recall_memory / memory_get tools."
         ),
         "memory_runtime" => Some(
-            "Controls the Memory UX v2 master switch, automatic recall consent, Deep Recall, learning, rollout and compatibility behavior. Changes apply to subsequent turns; disabling memory makes automatic memory paths fail closed."
+            "Controls the Memory UX v2 master switch, automatic recall consent, Deep Recall, learning, rollout and compatibility behavior. promptPreferences.{extraction,profile,dreaming} each accept {style: default|concise|detailed, supplemental: string}; these only guide writing within fixed contracts. Profile preferences apply only to manual LLM rewrites; shared Dreaming diary uses global preferences. Changes apply to future operations without adding model calls; disabling memory makes automatic memory paths fail closed."
         ),
         "external_memory_providers" => Some(
             "HIGH/privacy: enabling a provider or a push/bidirectional sync policy can send local memory to an external service. This category changes only non-secret provider metadata; credentials remain owner-UI/API only."
@@ -1792,6 +1792,46 @@ pub(crate) async fn tool_restore_settings_backup(args: &Value) -> Result<String>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn prompt_preferences_settings_partial_write_preserves_memory_consent_and_gates() {
+        let mut store = config::AppConfig::default();
+        store.memory.enabled = false;
+        store.memory.recall.enabled = false;
+        store.memory_extract.enable_reflection = false;
+        store.memory_extract.extract_claims = false;
+        apply_app_config_update(
+            &mut store,
+            "memory_runtime",
+            &json!({
+                "promptPreferences": {
+                    "extraction": { "style": "detailed", "supplemental": "keep relevant details" }
+                }
+            }),
+        )
+        .unwrap();
+        assert!(!store.memory.enabled);
+        assert!(!store.memory.recall.enabled);
+        assert!(!store.memory.recall.user_configured);
+        assert!(!store.memory_extract.enable_reflection);
+        assert!(!store.memory_extract.extract_claims);
+        assert_eq!(
+            store.memory.prompt_preferences.extraction.style,
+            crate::memory::prompt_preferences::MemoryPromptStyle::Detailed
+        );
+        assert_eq!(
+            store.memory.prompt_preferences.profile,
+            crate::memory::prompt_preferences::MemoryPromptPreference::default()
+        );
+        assert_eq!(risk_level("memory_runtime"), "medium");
+        assert!(apply_app_config_update(
+            &mut store,
+            "memory_runtime",
+            &json!({
+                "promptPreferences": { "profile": { "style": "replace_system_prompt" } }
+            })
+        )
+        .is_err());
+    }
     use super::*;
 
     #[test]

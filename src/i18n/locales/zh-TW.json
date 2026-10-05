@@ -8763,6 +8763,25 @@
       "timeout": "請求逾時（秒）",
       "defaultDuration": "預設時長",
       "durationOption": "{{seconds}} 秒"
+    },
+    "memoryPromptPreferences": {
+      "title": "記憶寫作偏好",
+      "desc": "按環節設定風格與補充要求（最多 512 字）。輸出與隱私規則不變；可增加提示詞 Token，不增加模型呼叫。",
+      "extraction": "對話提取",
+      "profile": "畫像合成",
+      "dreaming": "Dreaming 整理",
+      "inherit": "使用全域預設",
+      "default": "系統預設",
+      "concise": "精簡",
+      "detailed": "詳細",
+      "supplemental": "補充要求",
+      "profileNote": "僅手動合成畫像時生效。自動畫像保持規則整理、零模型呼叫；Agent 畫像用該 Agent 的偏好，Global/Project 用全域預設。",
+      "dreamingNote": "共用日記用全域預設；Agent 覆寫僅影響自身候選的標題與說明，不影響共用日記或整理裁決。",
+      "error": "載入或儲存偏好失敗",
+      "retry": "重試",
+      "save": "儲存偏好",
+      "saving": "儲存中…",
+      "saved": "已儲存"
     }
   },
   "shortcuts": {
