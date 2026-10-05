@@ -806,11 +806,11 @@ Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_pr
 
 ### OpenViking 导出终态与不确定写入
 
-OpenViking 的 `commit` 顶层 `status=ok` 只确认归档请求，`result.status=accepted` 和 `task_id` 不代表后台抽取完成。导出在发送首个消息批次前，将会话 ID、记忆 ID/摘要和凭据身份指纹写入既有同步账本的 `openVikingPendingExports`；不保存记忆正文或密钥。后续处于有效策略的同步先对账该批次，包括切换为 `pull_only`；策略仍控制是否允许新导出。只有同一身份的 `GET /api/v1/tasks/{task_id}` 返回匹配的 `session_commit` / 会话身份、`completed` 与合法结果，才发布完成摘要和导出计数。空 `memories_extracted` 对象是合法零变更；缺失结果、非法计数、非空错误或跳过的抽取操作不能报完成。
+OpenViking 的 `commit` 顶层 `status=ok` 只确认归档请求，`result.status=accepted` 和 `task_id` 不代表后台抽取完成。导出在发送首个消息批次前，将会话 ID、记忆 ID/摘要和凭据身份指纹写入既有同步账本的 `openVikingPendingExports`；不保存记忆正文或密钥。后续处于有效策略的同步先对账该批次，包括切换为 `pull_only`；策略仍控制是否允许新导出。只有同一身份的 `GET /api/v1/tasks/{task_id}` 返回匹配的 `session_commit` / 会话身份、`completed` 与合法结果，才发布完成摘要和导出计数。空 `memories_extracted` 对象是合法零变更；还须有明确的 `memory_extraction.skipped=0` 和空 `skipped_operations`。缺失结果、非法计数、非空错误或跳过的抽取操作不能报完成。旧版仅返回抽取计数与 `memory_diff_uri` 时，跳过状态仍未知，保持待对账，不发布摘要；本轮不读取独立 diff，最低版本门通过不代表终态导出已验收。
 
 `pending/running/cancelling` 每轮只探测一次，继续保留待对账批次；失败、取消、404、空响应、解析失败、丢失响应及无 task ID 的不确定写入保持冻结，不重新添加消息或重新 commit。凭据指纹包含 endpoint、subject、protocol 和 API key，密钥变更时也不得拿新身份读取旧 task；这比普通 key 轮换保留断点更严格。需所有者在原服务中核对任务、归档与实际结果后再决定连接清理或重建；不得仅删除本地账本来自动重试。该围栏不保证服务端 exactly-once，也不反向认证历史版本已经记录的完成摘要。HTTP、账本与最终健康状态仍沿现有跨进程锁、SSRF、预算和安全写入口，不投影为 `JobManager` 任务。
 
-匿名本地 wire fixture 覆盖任务轮询、未决与失败终态、身份变更和账本序列化恢复；0.4.16/0.4.17/0.4.20/0.4.22 的路由已静态核对，共用合成任务响应，不是真实部署兼容性或记忆抽取质量验收。
+匿名本地 wire fixture 覆盖任务轮询、未决与失败终态、身份变更和账本序列化恢复；0.4.16/0.4.17/0.4.20/0.4.22 的路由已静态核对，wire 按回执结构覆盖明确零跳过、已跳过与缺少跳过证明，不把版本号套在合成响应上当作真实部署兼容性或记忆抽取质量验收。
 
 ## 十五、无痕会话（Incognito）联动
 

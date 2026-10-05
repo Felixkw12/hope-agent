@@ -385,7 +385,10 @@ fn ensure_completed_task(value: &Value, task_id: &str, session_id: &str) -> Resu
     let counts_valid = result["memories_extracted"]
         .as_object()
         .is_some_and(|counts| counts.values().all(|v| v.as_u64().is_some()));
-    let skipped_valid = result.get("memory_extraction").is_none_or(|extraction| {
+    // Legacy task receipts expose only a memory-diff URI. Counts alone do not
+    // prove that every operation succeeded: missing skip evidence stays fenced
+    // until the owner reconciles it, rather than publishing every input hash.
+    let skipped_valid = result.get("memory_extraction").is_some_and(|extraction| {
         extraction["skipped"].as_u64() == Some(0)
             && extraction["skipped_operations"]
                 .as_array()
@@ -650,6 +653,8 @@ mod tests {
             ("/result/result/session_id", json!("other")),
             ("/result/result/memories_extracted", Value::Null),
             ("/result/result/memories_extracted", json!({"facts":-1})),
+            ("/result/result/memory_extraction", Value::Null),
+            ("/result/result/memory_extraction", json!({})),
             ("/result/result/memory_extraction/skipped", json!(1)),
             (
                 "/result/result/memory_extraction/skipped_operations",
@@ -666,6 +671,13 @@ mod tests {
         let mut value = completed();
         value["result"]["result"]["user_config_error"] = json!("bad config");
         assert!(ensure_completed_task(&value, "task-1", "owner-hope-batch").is_err());
+        let mut legacy = completed();
+        legacy["result"]["result"] = json!({
+            "session_id":"owner-hope-batch",
+            "memories_extracted":{"facts":1},
+            "memory_diff_uri":"viking://user/owner/sessions/owner-hope-batch/history/archive_001/memory_diff.json"
+        });
+        assert!(ensure_completed_task(&legacy, "task-1", "owner-hope-batch").is_err());
     }
 
     #[test]
@@ -841,87 +853,122 @@ mod tests {
 
     #[tokio::test]
     async fn resumed_wire_only_polls_and_publishes_after_valid_terminal_result() {
-        for version in ["0.4.16", "0.4.17", "0.4.20", "0.4.22"] {
-            let server = MockServer::start().await;
-            let mut ledger = pending_ledger();
-            let mut outcome = ExternalMemoryAdapterSyncOutcome::default();
-            let client = external_http_client().unwrap();
-            let task_url = format!("{}/api/v1/tasks/task-1", server.uri());
-            assert!(resolve_protocol(&credentials(), version).is_ok());
-            for status in [
-                "pending",
-                "running",
-                "cancelling",
-                "failed",
-                "cancelled",
-                "unknown",
-            ] {
-                let mut value = completed();
-                value["result"]["status"] = json!(status);
-                Mock::given(method("GET"))
-                    .and(path("/api/v1/tasks/task-1"))
-                    .respond_with(ResponseTemplate::new(200).set_body_json(value))
-                    .expect(1)
-                    .mount(&server)
-                    .await;
-                assert!(poll_pending_export(
-                    &credentials(),
-                    &client,
-                    &task_url,
-                    &mut ledger,
-                    &mut outcome,
-                    "owner-hope-batch"
-                )
-                .await
-                .is_err());
-                assert!(ledger.exported_hashes.is_empty());
-                assert_eq!(outcome.exported_memory_count, 0);
-                assert_eq!(ledger.open_viking_pending_exports.len(), 1);
-                server.reset().await;
-            }
-            for response in [
-                ResponseTemplate::new(404),
-                ResponseTemplate::new(204),
-                ResponseTemplate::new(200).set_body_string("not JSON"),
-            ] {
-                Mock::given(method("GET"))
-                    .respond_with(response)
-                    .expect(1)
-                    .mount(&server)
-                    .await;
-                assert!(poll_pending_export(
-                    &credentials(),
-                    &client,
-                    &task_url,
-                    &mut ledger,
-                    &mut outcome,
-                    "owner-hope-batch"
-                )
-                .await
-                .is_err());
-                assert!(ledger.exported_hashes.is_empty());
-                server.reset().await;
-            }
+        // This tests wire receipt shapes, not a real deployment/version matrix.
+        let server = MockServer::start().await;
+        let mut ledger = pending_ledger();
+        let mut outcome = ExternalMemoryAdapterSyncOutcome::default();
+        let client = external_http_client().unwrap();
+        let task_url = format!("{}/api/v1/tasks/task-1", server.uri());
+        for status in [
+            "pending",
+            "running",
+            "cancelling",
+            "failed",
+            "cancelled",
+            "unknown",
+        ] {
+            let mut value = completed();
+            value["result"]["status"] = json!(status);
             Mock::given(method("GET"))
                 .and(path("/api/v1/tasks/task-1"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(completed()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(value))
                 .expect(1)
                 .mount(&server)
                 .await;
-            poll_pending_export(
+            assert!(poll_pending_export(
                 &credentials(),
                 &client,
                 &task_url,
                 &mut ledger,
                 &mut outcome,
-                "owner-hope-batch",
+                "owner-hope-batch"
             )
             .await
-            .unwrap();
-            assert_eq!(outcome.exported_memory_count, 1);
-            assert_eq!(ledger.exported_hashes["7"], "input-hash");
-            assert!(ledger.open_viking_pending_exports.is_empty());
+            .is_err());
+            assert!(ledger.exported_hashes.is_empty());
+            assert_eq!(outcome.exported_memory_count, 0);
+            assert_eq!(ledger.open_viking_pending_exports.len(), 1);
+            server.reset().await;
         }
+        let mut legacy = completed();
+        legacy["result"]["result"]
+            .as_object_mut()
+            .unwrap()
+            .remove("memory_extraction");
+        legacy["result"]["result"]["memories_extracted"] = json!({"facts":1});
+        legacy["result"]["result"]["memory_diff_uri"] = json!(
+            "viking://user/owner/sessions/owner-hope-batch/history/archive_001/memory_diff.json"
+        );
+        let mut skipped = completed();
+        skipped["result"]["result"]["memory_extraction"] =
+            json!({"skipped":1,"skipped_operations":[{"reason_code":"invalid_ranges"}]});
+        for value in [legacy, skipped] {
+            Mock::given(method("GET"))
+                .and(path("/api/v1/tasks/task-1"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(value))
+                .expect(1)
+                .mount(&server)
+                .await;
+            assert!(poll_pending_export(
+                &credentials(),
+                &client,
+                &task_url,
+                &mut ledger,
+                &mut outcome,
+                "owner-hope-batch"
+            )
+            .await
+            .is_err());
+            assert!(ledger.exported_hashes.is_empty());
+            assert_eq!(outcome.exported_memory_count, 0);
+            assert_eq!(ledger.open_viking_pending_exports.len(), 1);
+            let requests = server.received_requests().await.unwrap();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].method, "GET");
+            server.reset().await;
+        }
+        for response in [
+            ResponseTemplate::new(404),
+            ResponseTemplate::new(204),
+            ResponseTemplate::new(200).set_body_string("not JSON"),
+        ] {
+            Mock::given(method("GET"))
+                .respond_with(response)
+                .expect(1)
+                .mount(&server)
+                .await;
+            assert!(poll_pending_export(
+                &credentials(),
+                &client,
+                &task_url,
+                &mut ledger,
+                &mut outcome,
+                "owner-hope-batch"
+            )
+            .await
+            .is_err());
+            assert!(ledger.exported_hashes.is_empty());
+            server.reset().await;
+        }
+        Mock::given(method("GET"))
+            .and(path("/api/v1/tasks/task-1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(completed()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        poll_pending_export(
+            &credentials(),
+            &client,
+            &task_url,
+            &mut ledger,
+            &mut outcome,
+            "owner-hope-batch",
+        )
+        .await
+        .unwrap();
+        assert_eq!(outcome.exported_memory_count, 1);
+        assert_eq!(ledger.exported_hashes["7"], "input-hash");
+        assert!(ledger.open_viking_pending_exports.is_empty());
     }
 
     fn credentials() -> ExternalMemoryProviderCredentials {
