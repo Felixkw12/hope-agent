@@ -265,7 +265,7 @@ Image and audio generation share one **provider → models → per-function defa
 
 **Where**: Settings → **Model Configuration** → **Media Generation Models** tab. Click "Add Provider" to connect one of 27 built-in templates in a single click. Templates are grouped by modality and searchable — both brand names and model IDs match, so typing `seedream` or `flux` jumps straight to the right provider:
 
-- **Image**: OpenAI (gpt-image), Google (Gemini / Imagen, supporting image editing and multiple reference images), Fal (Flux), SiliconFlow (Qwen-Image), Zhipu (CogView), Tongyi Wanxiang, Volcengine (Seedream), Tencent Hunyuan, StepFun, Baidu Qianfan, SenseNova, Black Forest Labs (FLUX), Stability AI, Replicate, Together, xAI (Grok Image), Recraft, Kling, iFlytek
+- **Image**: OpenAI (gpt-image), Google (Gemini, supporting image editing and multiple reference images), Fal (Flux), SiliconFlow (Qwen-Image), Zhipu (CogView), Tongyi Wanxiang, Volcengine (Seedream), Tencent Hunyuan, StepFun, Baidu Qianfan, SenseNova, Black Forest Labs (FLUX), Stability AI, Replicate, Together, xAI (Grok Image), Recraft, Kling, iFlytek
 - **Audio**: ElevenLabs (TTS + music + sound effects), MiniMax (speech + music), OpenAI (TTS), Cartesia, Deepgram, Fish Audio, Hume, Volcengine Doubao Speech, Stability (sound effects), Kling
 - **Self-hosted**: "Custom (OpenAI-compatible)"
 
@@ -297,6 +297,8 @@ The image and audio artifacts of the [Design Space](06-design-space.md) run on t
 
 > When adjusting settings through conversation, the AI can only change the default chains and the parameters in the table above; provider entries (including API keys) **can only be changed in the GUI**.
 
+New image templates exclude retired DALL·E 3 and Google Imagen 4 / older Gemini image presets; Google uses `gemini-3.1-flash-image` / `gemini-3-pro-image`. Choose replacements for existing configurations according to your provider’s current availability. GPT Image 1 shuts down on October 23, 2026; check replacement models and required parameters before then. Catalog maintenance does not establish actual image quality.
+
 ---
 
 ## 2.13 Web search and web fetch
@@ -305,11 +307,15 @@ The image and audio artifacts of the [Design Space](06-design-space.md) run on t
 
 Configure search providers for the `web_search` tool in conversations.
 
-**Where**: Settings → **Web Search** panel. 9 providers can be dragged to reorder (the one ranked first is the primary; the others that are enabled serve as fallbacks):
+**Where**: Settings → **Web Search** panel. 10 search options can be dragged to reorder (the one ranked first is the primary; the others that are enabled serve as fallbacks):
 
-- **Free, no key needed**: DuckDuckGo (marked "limited reliability")
+- **Free, no key needed**: Free multi-engine search and DuckDuckGo (both marked "limited reliability")
 - **Self-hosted**: SearXNG (fill in the instance URL; includes one-click Docker deployment)
 - **Key required**: Tavily (recommended globally), Bocha (recommended domestically), Brave, Perplexity, Google CSE, Grok, Kimi
+
+New installations enable **Free multi-engine search** by default: Brave web search first, 360 Search if Brave fails or returns no usable results, then DuckDuckGo and other enabled providers in order. No API key, Python runtime, or extra deployment is needed. Existing configurations keep their provider order and append the new option as a fallback when DuckDuckGo is enabled. Otherwise the added option stays disabled; you can enable it manually and drag it to the top. Disabling every provider also prevents execution, including calls made with a stale tool definition.
+
+This native implementation takes inspiration from DDGS's multi-engine fallback and does not run the original Python DDGS package. Keyless access cannot guarantee availability: upstream rate limits, network restrictions, and page changes can still cause failures. Country and language filters are applied on a best-effort basis according to upstream support; an explicit freshness filter prevents fallback to 360 Search, which does not support it.
 
 | Advanced setting | What it does |
 | --- | --- |

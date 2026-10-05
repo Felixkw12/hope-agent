@@ -15,6 +15,8 @@ The end of this chapter also covers a memory-related feature, [behavior awarenes
 - [4.5 Advanced: offline consolidation, profile, and correction (Dreaming)](#45-advanced-offline-consolidation-profile-and-correction-dreaming)
 - [4.6 Behavior awareness](#46-behavior-awareness)
 
+For configured OpenViking external sync, an accepted request does not mean the export completed. Unfinished tasks are checked again on the next sync. Failed tasks, lost receipts or changed credentials leave the batch awaiting reconciliation and stop automatic resending. Check the task and actual results in the original service before deciding whether to clear the connection; do not delete local state to force a retry.
+
 ---
 
 ## 4.1 Three tiers of memory: Global / Agent / Project

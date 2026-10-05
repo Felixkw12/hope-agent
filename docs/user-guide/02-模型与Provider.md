@@ -265,7 +265,7 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 **入口**:设置 → **模型配置** → **媒体生成模型** 标签页。点「添加服务商」从 27 个内置模板一键接入,模板按模态分组并支持搜索——品牌名和模型 ID 都能搜(例如输入 `seedream` 或 `flux` 直接定位到对应服务商):
 
-- **图像**:OpenAI(gpt-image)、Google(Gemini / Imagen,支持改图和多参考图)、Fal(Flux)、SiliconFlow(Qwen-Image)、智谱(CogView)、通义万相、火山引擎(Seedream)、腾讯混元、阶跃星辰、百度千帆、商汤日日新、Black Forest Labs(FLUX)、Stability AI、Replicate、Together、xAI(Grok Image)、Recraft、快手可灵、科大讯飞
+- **图像**:OpenAI(gpt-image)、Google(Gemini,支持改图和多参考图)、Fal(Flux)、SiliconFlow(Qwen-Image)、智谱(CogView)、通义万相、火山引擎(Seedream)、腾讯混元、阶跃星辰、百度千帆、商汤日日新、Black Forest Labs(FLUX)、Stability AI、Replicate、Together、xAI(Grok Image)、Recraft、快手可灵、科大讯飞
 - **音频**:ElevenLabs(TTS + 音乐 + 音效)、MiniMax(语音 + 音乐)、OpenAI(TTS)、Cartesia、Deepgram、Fish Audio、Hume、火山豆包语音、Stability(音效)、快手可灵
 - **自建端点**:「自定义(OpenAI 兼容)」
 
@@ -297,6 +297,8 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 > 通过对话调设置时,AI 只能改默认调用链和上表里的参数;服务商条目(含 API Key)**只能在 GUI 里改**。
 
+图像新建模板已移除退役的 DALL·E 3 和 Google Imagen 4 / 旧 Gemini 图像预设，Google 使用 `gemini-3.1-flash-image` / `gemini-3-pro-image`。现有配置需由你按服务商当前可用性选择替换；GPT Image 1 将于 2026-10-23 下线，届时前请核对替代模型与所需参数。目录更新不代表真实图像质量已验收。
+
 ---
 
 ## 2.13 Web 搜索与网页抓取
@@ -305,11 +307,15 @@ hope-agent auth codex logout         # 登出(会删除 Codex 服务商与本地
 
 为对话里的 `web_search` 工具配置搜索服务商。
 
-**入口**:设置 → **网页搜索** 面板。9 家服务商可拖拽排序(排第一的是主用,其余启用的作兜底):
+**入口**:设置 → **网页搜索** 面板。10 项搜索服务可拖拽排序(排第一的是主用,其余启用的作兜底):
 
-- **免费无需 Key**:DuckDuckGo(标注「可靠性有限」)
+- **免费无需 Key**:免费多引擎搜索、DuckDuckGo(均标注「可靠性有限」)
 - **自托管**:SearXNG(填实例 URL,含 Docker 一键部署)
 - **需 Key**:Tavily(全球推荐)、Bocha 博查(国内推荐)、Brave、Perplexity、Google CSE、Grok、Kimi
+
+新安装默认启用**免费多引擎搜索**:先用 Brave 网页搜索,失败或没有可用结果时回退 360 网页搜索,再按服务商顺序尝试 DuckDuckGo 等兜底。无需 API Key、Python 或额外部署。旧配置保留服务商顺序,DuckDuckGo 已启用时新增项追加为兜底;其余旧配置的新增项保持关闭,可手动启用并拖到第一位。全部服务商关闭后,实际调用也会拒绝搜索。
+
+此实现借鉴 DDGS 的多引擎回退方式,不运行原版 Python DDGS。免 Key 不能保证始终可用,上游限流、网络限制或页面变化仍可能导致失败。国家 / 语言过滤依上游能力尽力生效;设置了时效过滤时不会回退到不支持该过滤的 360 网页搜索。
 
 | 高级设置 | 作用 |
 | --- | --- |

@@ -315,8 +315,8 @@ CREATE TABLE memories (
 
 Project scope 比 Agent scope 更窄，存在的意义是：**会话属于某项目时，项目知识优先，且不会泄漏到用同一 Agent 的其它项目**。隔离保证：
 
-- `recall_memory` / `save_memory` 工具经 `scope_where(agent_id)` 查询，**有意排除 Project scope**，防止项目记忆在无关会话中泄漏。
-- 项目记忆仅通过显式 `MemoryScope::Project { id }` 或 `load_prompt_candidates_with_project()` 访问；`save_memory` 的 `scope="project"` 从当前会话 `session.project_id` 自动解析。
+- `recall_memory` 只查询当前会话可读的作用域：当前 Project（若有）、当前 Agent，以及 Agent 允许共享时的 Global。各作用域分别检索；有词法命中或足够语义相似度时先各保留一条，再按 Project、Agent、Global 优先级填满 `limit`，避免单一作用域占满结果。`limit` 小于匹配作用域数时仍按此优先级截断。
+- Project 记忆仅通过当前会话的项目 ID 查询，不会泄漏到其它项目；`save_memory` 的 `scope="project"` 也从当前会话 `session.project_id` 自动解析。Global 的读写仍受当前 Agent 的 shared 设置约束。
 
 `MemoryBackend` trait 另有 owner-only 的只读 `health()`（SQLite quick_check、索引缺口、embedding 覆盖、claim graph 孤儿、Dreaming stale state）和保守 `repair(action)`——**实现必须显式 opt-in，绝不让模型能调用的工具面直接触发**。
 
@@ -795,6 +795,14 @@ Dreaming 的 claim 读路径 / effective-status / hidden-set / scope 过滤 / ev
 Owner 面严格区分"如果执行会怎样"（`get_external_memory_providers_preflight` / preflight report，只读、不发外部 IO）与"实际发生了什么"（`run_external_memory_provider_sync` / sync report，逐 provider status + 是否真实 IO + 计数）；有未保存草稿时禁运行。
 
 ---
+
+### OpenViking 导出终态与不确定写入
+
+OpenViking 的 `commit` 顶层 `status=ok` 只确认归档请求，`result.status=accepted` 和 `task_id` 不代表后台抽取完成。导出在发送首个消息批次前，将会话 ID、记忆 ID/摘要和凭据身份指纹写入既有同步账本的 `openVikingPendingExports`；不保存记忆正文或密钥。后续同步先对账该批次，只有同一身份的 `GET /api/v1/tasks/{task_id}` 返回匹配的 `session_commit` / 会话身份、`completed` 与合法结果，才发布完成摘要和导出计数。空 `memories_extracted` 对象是合法零变更；缺失结果、非法计数、非空错误或跳过的抽取操作不能报完成。
+
+`pending/running/cancelling` 每轮只探测一次，继续保留待对账批次；失败、取消、404、空响应、解析失败、丢失响应及无 task ID 的不确定写入保持冻结，不重新添加消息或重新 commit。凭据指纹包含 endpoint、subject、protocol 和 API key，密钥变更时也不得拿新身份读取旧 task；这比普通 key 轮换保留断点更严格。需所有者在原服务中核对任务、归档与实际结果后再决定连接清理或重建；不得仅删除本地账本来自动重试。该围栏不保证服务端 exactly-once，也不反向认证历史版本已经记录的完成摘要。HTTP、账本与最终健康状态仍沿现有跨进程锁、SSRF、预算和安全写入口，不投影为 `JobManager` 任务。
+
+匿名本地 wire fixture 覆盖任务轮询、未决与失败终态、身份变更和账本序列化恢复；0.4.16/0.4.17/0.4.20/0.4.22 的路由已静态核对，共用合成任务响应，不是真实部署兼容性或记忆抽取质量验收。
 
 ## 十五、无痕会话（Incognito）联动
 

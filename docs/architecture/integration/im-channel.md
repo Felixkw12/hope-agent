@@ -120,7 +120,7 @@ graph TB
 | **Discord** | WebSocket Gateway | Bot Token | DM / Group / Forum / Channel | Application Commands 同步、RESUME 重连、原生媒体 multipart |
 | **Slack** | Socket Mode WebSocket | Bot Token + App Token | DM / Group / Channel | 原生 reply stream、dense 任务/计划进度、Slack Connect、一次性 URL 重连 |
 | **飞书 / Lark** | WebSocket 事件订阅 | App ID + App Secret | DM / Group | OAuth Token 自动刷新、多域名、cardkit 卡片流式 |
-| **QQ Bot** | WebSocket Gateway | App ID + Client Secret | DM / Group / Channel | RESUME 重连、`QQBotAccessToken` 认证 |
+| **QQ Bot** | WebSocket Gateway | App ID + Client Secret | DM / Group / Channel | RESUME 重连、`QQBot` 认证 |
 | **微信 / WeChat** | HTTP 长轮询（iLink） | 扫码登录 | DM | AES-128 媒体加密、输入指示、发送业务码 fail-closed |
 | **WhatsApp** | HTTP 轮询（外部桥接） | Bridge URL + Token | DM / Group | Bridge 身份/版本/能力发现、Baileys 安全门禁、媒体支持 |
 | **Signal** | SSE + HTTP RPC（signal-cli） | 手机号 + 链接设备 | DM / Group | 实时推送、撤回/回复/输入指示、需外部 signal-cli |
@@ -939,7 +939,9 @@ ask_user / approval 的**按钮卡片**也走 schema 2.0，但**不**走 cardkit
 
 ### QQ Bot
 
-- **认证**：`appId` + `clientSecret` → `access_token`（2h TTL）；**Auth Header**：`QQBotAccessToken {token}`（非 Bearer）；**传输**：WebSocket Gateway，与 Discord 类似的 opcode 协议；**Intents**：`PUBLIC_GUILD_MESSAGES | DIRECT_MESSAGE | GROUP_AND_C2C`。
+- **域名证据边界**：10-02 雷达已记录官方统一 `api.bot.qq.com` 通知；当前 REST 生产/沙箱与取凭证仍沿既有域名。统一沙箱隔离和新取凭证路由未完整核验，迁移由行动卡 `10-A12` 跟踪，不在发送失败后跨域重放。
+
+- **认证**：`appId` + `clientSecret` → `access_token`（2h TTL）；**Auth Header**：`QQBot {token}`（非 Bearer）；**传输**：WebSocket Gateway，与 Discord 类似的 opcode 协议；**Intents**：`PUBLIC_GUILD_MESSAGES | DIRECT_MESSAGE | GROUP_AND_C2C`。
 - **chat_id 编码**：多端点用前缀区分——`c2c:{openid}` / `group:{group_openid}` / `channel:{channel_id}` / `dms:{guild_id}`。
 - **事件**：`C2C_MESSAGE_CREATE`→Dm、`GROUP_AT_MESSAGE_CREATE`→Group、`AT_MESSAGE_CREATE`→Channel、`DIRECT_MESSAGE_CREATE`→Dm。
 - **限制**：不支持 edit/unsend（API 不提供）。

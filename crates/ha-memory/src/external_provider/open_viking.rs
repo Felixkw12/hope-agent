@@ -1,6 +1,8 @@
 use anyhow::{anyhow, bail, Result};
 use reqwest::{Client, RequestBuilder};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 use ha_core::memory::{ExternalMemoryProviderConfig, ExternalMemoryProviderKind};
 
@@ -8,11 +10,11 @@ use super::http::{
     client as external_http_client, endpoint_with_path, send_json, validated_endpoint,
 };
 use super::{
-    compatible_provider_version_for_sync, content_fingerprint, finish_sync_with_ledger_checkpoint,
-    import_external_memory_for_review, load_local_memory_snapshot, load_sync_ledger_async,
-    local_memory_fingerprint, parse_version, persist_sync_ledger_async,
-    resolve_external_memory_provider_credentials_async, version_meets_minimum,
-    ExternalMemoryAdapterSyncFailure, ExternalMemoryAdapterSyncOutcome,
+    compatibility_credential_fingerprint, compatible_provider_version_for_sync,
+    content_fingerprint, finish_sync_with_ledger_checkpoint, import_external_memory_for_review,
+    load_local_memory_snapshot, load_sync_ledger_async, local_memory_fingerprint, parse_version,
+    persist_sync_ledger_async, resolve_external_memory_provider_credentials_async,
+    version_meets_minimum, ExternalMemoryAdapterSyncFailure, ExternalMemoryAdapterSyncOutcome,
     ExternalMemoryProviderAdapter, ExternalMemoryProviderCredentials,
     ExternalMemoryProviderSyncLedger,
 };
@@ -26,6 +28,16 @@ const MAX_REMOTE_FILE_READS_PER_RUN: usize = 200;
 const MAX_LOCAL_MEMORIES_PER_RUN: usize = 500;
 const LOCAL_MEMORY_SCAN_LIMIT: usize = 20_000;
 const PUSH_BATCH_SIZE: usize = 100;
+
+/// A write-ahead fence, not proof that any remote mutation completed. No text
+/// or credentials are stored. A missing task ID requires owner reconciliation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PendingExport {
+    credential_fingerprint: String,
+    hashes: BTreeMap<String, String>,
+    task_id: Option<String>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OpenVikingProtocol {
@@ -197,6 +209,20 @@ async fn push_memory_sessions(
     ledger: &mut ExternalMemoryProviderSyncLedger,
     outcome: &mut ExternalMemoryAdapterSyncOutcome,
 ) -> std::result::Result<(), ExternalMemoryAdapterSyncFailure> {
+    // Reconcile before reading another snapshot or issuing a mutation. This
+    // includes previous processes' accepted tasks and uncertain writes.
+    for session_id in ledger
+        .open_viking_pending_exports
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>()
+    {
+        reconcile_pending_export(credentials, endpoint, client, ledger, outcome, &session_id)
+            .await?;
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
+            .map_err(|error| failure(outcome.clone(), error))?;
+    }
     let (local_memories, total) = load_local_memory_snapshot(LOCAL_MEMORY_SCAN_LIMIT)
         .await
         .map_err(|error| failure(outcome.clone(), error))?;
@@ -254,15 +280,35 @@ async fn push_memory_sessions(
                 .json(&json!({"messages": messages})),
             credentials,
         );
-        let response = send_json(request, outcome).await?;
-        ensure_ok_envelope(&response).map_err(|error| failure(outcome.clone(), error))?;
-
         let commit_url =
             endpoint_with_path(endpoint, &["api", "v1", "sessions", &session_id, "commit"])
                 .map_err(|error| failure(outcome.clone(), error))?;
         validated_endpoint(&commit_url)
             .await
             .map_err(|error| failure(outcome.clone(), error))?;
+        ledger.open_viking_pending_exports.insert(
+            session_id.clone(),
+            PendingExport {
+                credential_fingerprint: compatibility_credential_fingerprint(
+                    ExternalMemoryProviderKind::OpenViking,
+                    credentials,
+                )
+                .map_err(|error| failure(outcome.clone(), error))?,
+                hashes: batch
+                    .iter()
+                    .map(|(memory, hash)| (memory.id.to_string(), hash.clone()))
+                    .collect(),
+                task_id: None,
+            },
+        );
+        // Any failure/cancellation after this checkpoint must never re-add the
+        // messages or re-commit the session automatically, even after restart.
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
+            .map_err(|error| failure(outcome.clone(), error))?;
+        let response = send_json(request, outcome).await?;
+        ensure_ok_envelope(&response).map_err(|error| failure(outcome.clone(), error))?;
+
         let request = apply_auth(
             client
                 .post(&commit_url)
@@ -270,26 +316,167 @@ async fn push_memory_sessions(
             credentials,
         );
         let response = send_json(request, outcome).await?;
-        ensure_ok_envelope(&response).map_err(|error| failure(outcome.clone(), error))?;
+        let task_id = accepted_commit_task(&response, &session_id)
+            .map_err(|error| failure(outcome.clone(), error))?;
+        if let Some(pending) = ledger.open_viking_pending_exports.get_mut(&session_id) {
+            pending.task_id = Some(task_id);
+        }
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
+            .map_err(|error| failure(outcome.clone(), error))?;
+        reconcile_pending_export(credentials, endpoint, client, ledger, outcome, &session_id)
+            .await?;
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
+            .map_err(|error| failure(outcome.clone(), error))?;
+    }
+    Ok(())
+}
 
-        for (memory, hash) in batch {
-            let old = ledger
-                .exported_hashes
-                .insert(memory.id.to_string(), hash.clone());
-            ledger
-                .exported_remote_ids
-                .insert(memory.id.to_string(), session_id.clone());
+fn accepted_commit_task(value: &Value, session_id: &str) -> Result<String> {
+    ensure_ok_envelope(value)?;
+    let result = &value["result"];
+    if result["session_id"].as_str() != Some(session_id)
+        || result["status"].as_str() != Some("accepted")
+        || result["archived"].as_bool() != Some(true)
+    {
+        bail!("OpenViking commit is not an accepted archive; owner reconciliation required");
+    }
+    let task_id = result["task_id"]
+        .as_str()
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 256
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+        })
+        .ok_or_else(|| {
+            anyhow!("OpenViking commit omitted a valid task ID; owner reconciliation required")
+        })?;
+    Ok(task_id.to_owned())
+}
+
+fn ensure_completed_task(value: &Value, task_id: &str, session_id: &str) -> Result<()> {
+    ensure_ok_envelope(value)?;
+    let task = &value["result"];
+    if task["task_id"].as_str() != Some(task_id)
+        || task["task_type"].as_str() != Some("session_commit")
+        || task["resource_id"].as_str() != Some(session_id)
+    {
+        bail!("OpenViking task identity mismatch; owner reconciliation required");
+    }
+    match task["status"].as_str() {
+        Some("pending" | "running" | "cancelling") => bail!("OpenViking export is awaiting a terminal task; next sync will only check its status"),
+        Some("completed") => {},
+        _ => bail!("OpenViking task failed, cancelled or has an unknown status; owner reconciliation required"),
+    }
+    let result = &task["result"];
+    let counts_valid = result["memories_extracted"]
+        .as_object()
+        .is_some_and(|counts| counts.values().all(|v| v.as_u64().is_some()));
+    let skipped_valid = result.get("memory_extraction").is_none_or(|extraction| {
+        extraction["skipped"].as_u64() == Some(0)
+            && extraction["skipped_operations"]
+                .as_array()
+                .is_some_and(Vec::is_empty)
+    });
+    if !task["error"].is_null()
+        || result["session_id"].as_str() != Some(session_id)
+        || !counts_valid
+        || !skipped_valid
+        || !result["user_config_error"].is_null()
+    {
+        bail!("OpenViking completed task has invalid or incomplete extraction results; owner reconciliation required");
+    }
+    // An empty counts object is a legitimate completed zero-change extraction.
+    Ok(())
+}
+
+fn pending_task_id<'a>(
+    pending: &'a PendingExport,
+    credentials: &ExternalMemoryProviderCredentials,
+) -> Result<&'a str> {
+    let fingerprint =
+        compatibility_credential_fingerprint(ExternalMemoryProviderKind::OpenViking, credentials)?;
+    if pending.credential_fingerprint != fingerprint {
+        bail!("OpenViking pending export credentials changed; owner reconciliation required");
+    }
+    pending.task_id.as_deref().ok_or_else(|| {
+        anyhow!("OpenViking export has an uncertain remote write; owner reconciliation required")
+    })
+}
+
+async fn reconcile_pending_export(
+    credentials: &ExternalMemoryProviderCredentials,
+    endpoint: &str,
+    client: &Client,
+    ledger: &mut ExternalMemoryProviderSyncLedger,
+    outcome: &mut ExternalMemoryAdapterSyncOutcome,
+    session_id: &str,
+) -> std::result::Result<(), ExternalMemoryAdapterSyncFailure> {
+    let pending = ledger
+        .open_viking_pending_exports
+        .get(session_id)
+        .ok_or_else(|| {
+            failure(
+                outcome.clone(),
+                anyhow!("OpenViking pending export missing"),
+            )
+        })?;
+    let task_id =
+        pending_task_id(pending, credentials).map_err(|error| failure(outcome.clone(), error))?;
+    let task_url = endpoint_with_path(endpoint, &["api", "v1", "tasks", task_id])
+        .map_err(|error| failure(outcome.clone(), error))?;
+    validated_endpoint(&task_url)
+        .await
+        .map_err(|error| failure(outcome.clone(), error))?;
+    poll_pending_export(credentials, client, &task_url, ledger, outcome, session_id).await
+}
+
+// The production caller validates the URL before entering this wire operation.
+async fn poll_pending_export(
+    credentials: &ExternalMemoryProviderCredentials,
+    client: &Client,
+    task_url: &str,
+    ledger: &mut ExternalMemoryProviderSyncLedger,
+    outcome: &mut ExternalMemoryAdapterSyncOutcome,
+    session_id: &str,
+) -> std::result::Result<(), ExternalMemoryAdapterSyncFailure> {
+    let pending = ledger
+        .open_viking_pending_exports
+        .get(session_id)
+        .ok_or_else(|| {
+            failure(
+                outcome.clone(),
+                anyhow!("OpenViking pending export missing"),
+            )
+        })?;
+    let task_id =
+        pending_task_id(pending, credentials).map_err(|error| failure(outcome.clone(), error))?;
+    let value = send_json(apply_auth(client.get(task_url), credentials), outcome).await?;
+    ensure_completed_task(&value, task_id, session_id)
+        .map_err(|error| failure(outcome.clone(), error))?;
+    publish_completed_export(ledger, outcome, session_id);
+    Ok(())
+}
+
+fn publish_completed_export(
+    ledger: &mut ExternalMemoryProviderSyncLedger,
+    outcome: &mut ExternalMemoryAdapterSyncOutcome,
+    session_id: &str,
+) {
+    if let Some(pending) = ledger.open_viking_pending_exports.remove(session_id) {
+        for (id, hash) in pending.hashes {
+            let old = ledger.exported_hashes.insert(id.clone(), hash);
+            ledger.exported_remote_ids.insert(id, session_id.to_owned());
             if old.is_some() {
                 outcome.updated_memory_count += 1;
             } else {
                 outcome.exported_memory_count += 1;
             }
         }
-        persist_sync_ledger_async(&provider.id, ledger)
-            .await
-            .map_err(|error| failure(outcome.clone(), error))?;
     }
-    Ok(())
 }
 
 fn resolve_protocol(
@@ -397,6 +584,186 @@ fn failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn accepted() -> Value {
+        json!({"status":"ok","result":{"session_id":"owner-hope-batch","status":"accepted","archived":true,"task_id":"task-1"}})
+    }
+
+    fn completed() -> Value {
+        json!({"status":"ok","result":{"task_id":"task-1","task_type":"session_commit","resource_id":"owner-hope-batch","status":"completed","error":null,"result":{"session_id":"owner-hope-batch","memories_extracted":{},"memory_extraction":{"skipped":0,"skipped_operations":[]}}}})
+    }
+
+    fn pending_ledger() -> ExternalMemoryProviderSyncLedger {
+        let pending = PendingExport {
+            credential_fingerprint: compatibility_credential_fingerprint(
+                ExternalMemoryProviderKind::OpenViking,
+                &credentials(),
+            )
+            .unwrap(),
+            hashes: BTreeMap::from([("7".to_owned(), "input-hash".to_owned())]),
+            task_id: Some(accepted_commit_task(&accepted(), "owner-hope-batch").unwrap()),
+        };
+        ExternalMemoryProviderSyncLedger {
+            open_viking_pending_exports: BTreeMap::from([("owner-hope-batch".to_owned(), pending)]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn accepted_archive_is_never_terminal_evidence() {
+        assert!(ensure_completed_task(&accepted(), "task-1", "owner-hope-batch").is_err());
+        for invalid in [
+            Value::Null,
+            json!({"status":"ok"}),
+            json!({"status":"ok","result":{"status":"skipped"}}),
+        ] {
+            assert!(accepted_commit_task(&invalid, "owner-hope-batch").is_err());
+        }
+        let mut value = accepted();
+        value["result"]["session_id"] = json!("other");
+        assert!(accepted_commit_task(&value, "owner-hope-batch").is_err());
+        let mut value = accepted();
+        value["result"]["task_id"] = json!("../other");
+        assert!(accepted_commit_task(&value, "owner-hope-batch").is_err());
+    }
+
+    #[test]
+    fn completed_extraction_rejects_malformed_partial_and_wrong_identity_results() {
+        assert!(ensure_completed_task(&completed(), "task-1", "owner-hope-batch").is_ok());
+        for (pointer, replacement) in [
+            ("/result/task_id", json!("other")),
+            ("/result/task_type", json!("add_resource")),
+            ("/result/resource_id", json!("other")),
+            ("/result/error", json!("empty_response")),
+            ("/result/result/session_id", json!("other")),
+            ("/result/result/memories_extracted", Value::Null),
+            ("/result/result/memories_extracted", json!({"facts":-1})),
+            ("/result/result/memory_extraction/skipped", json!(1)),
+            (
+                "/result/result/memory_extraction/skipped_operations",
+                json!([{"reason":"parse_error"}]),
+            ),
+        ] {
+            let mut value = completed();
+            *value.pointer_mut(pointer).unwrap() = replacement;
+            assert!(
+                ensure_completed_task(&value, "task-1", "owner-hope-batch").is_err(),
+                "{pointer}"
+            );
+        }
+        let mut value = completed();
+        value["result"]["result"]["user_config_error"] = json!("bad config");
+        assert!(ensure_completed_task(&value, "task-1", "owner-hope-batch").is_err());
+    }
+
+    #[test]
+    fn pending_fence_survives_restart_without_body_and_rejects_identity_changes() {
+        let ledger: ExternalMemoryProviderSyncLedger =
+            serde_json::from_slice(&serde_json::to_vec(&pending_ledger()).unwrap()).unwrap();
+        let pending = &ledger.open_viking_pending_exports["owner-hope-batch"];
+        assert!(ledger.exported_hashes.is_empty());
+        assert_eq!(pending_task_id(pending, &credentials()).unwrap(), "task-1");
+        for field in ["endpoint", "apiKey", "subjectId", "protocol"] {
+            let mut changed = serde_json::to_value(credentials()).unwrap();
+            changed[field] = json!("changed");
+            let changed = serde_json::from_value(changed).unwrap();
+            assert!(pending_task_id(pending, &changed).is_err(), "{field}");
+        }
+        let mut uncertain = pending.clone();
+        uncertain.task_id = None;
+        assert!(pending_task_id(&uncertain, &credentials()).is_err());
+        // Old ledgers remain readable without a schema rewrite.
+        let old: ExternalMemoryProviderSyncLedger =
+            serde_json::from_value(json!({"schemaVersion":1})).unwrap();
+        assert!(old.open_viking_pending_exports.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resumed_wire_only_polls_and_publishes_after_valid_terminal_result() {
+        for version in ["0.4.16", "0.4.17", "0.4.20", "0.4.22"] {
+            let server = MockServer::start().await;
+            let mut ledger = pending_ledger();
+            let mut outcome = ExternalMemoryAdapterSyncOutcome::default();
+            let client = external_http_client().unwrap();
+            let task_url = format!("{}/api/v1/tasks/task-1", server.uri());
+            assert!(resolve_protocol(&credentials(), version).is_ok());
+            for status in [
+                "pending",
+                "running",
+                "cancelling",
+                "failed",
+                "cancelled",
+                "unknown",
+            ] {
+                let mut value = completed();
+                value["result"]["status"] = json!(status);
+                Mock::given(method("GET"))
+                    .and(path("/api/v1/tasks/task-1"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(value))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+                assert!(poll_pending_export(
+                    &credentials(),
+                    &client,
+                    &task_url,
+                    &mut ledger,
+                    &mut outcome,
+                    "owner-hope-batch"
+                )
+                .await
+                .is_err());
+                assert!(ledger.exported_hashes.is_empty());
+                assert_eq!(outcome.exported_memory_count, 0);
+                assert_eq!(ledger.open_viking_pending_exports.len(), 1);
+                server.reset().await;
+            }
+            for response in [
+                ResponseTemplate::new(404),
+                ResponseTemplate::new(204),
+                ResponseTemplate::new(200).set_body_string("not JSON"),
+            ] {
+                Mock::given(method("GET"))
+                    .respond_with(response)
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+                assert!(poll_pending_export(
+                    &credentials(),
+                    &client,
+                    &task_url,
+                    &mut ledger,
+                    &mut outcome,
+                    "owner-hope-batch"
+                )
+                .await
+                .is_err());
+                assert!(ledger.exported_hashes.is_empty());
+                server.reset().await;
+            }
+            Mock::given(method("GET"))
+                .and(path("/api/v1/tasks/task-1"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(completed()))
+                .expect(1)
+                .mount(&server)
+                .await;
+            poll_pending_export(
+                &credentials(),
+                &client,
+                &task_url,
+                &mut ledger,
+                &mut outcome,
+                "owner-hope-batch",
+            )
+            .await
+            .unwrap();
+            assert_eq!(outcome.exported_memory_count, 1);
+            assert_eq!(ledger.exported_hashes["7"], "input-hash");
+            assert!(ledger.open_viking_pending_exports.is_empty());
+        }
+    }
 
     fn credentials() -> ExternalMemoryProviderCredentials {
         ExternalMemoryProviderCredentials {

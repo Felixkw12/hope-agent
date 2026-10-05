@@ -153,6 +153,8 @@ pub(crate) struct ExternalMemoryProviderSyncLedger {
     #[serde(default)]
     pub pending_export_hashes: BTreeMap<String, String>,
     #[serde(default)]
+    pub open_viking_pending_exports: BTreeMap<String, open_viking::PendingExport>,
+    #[serde(default)]
     pub imported_hashes: BTreeMap<String, String>,
     #[serde(default)]
     pub remote_versions: BTreeMap<String, String>,
