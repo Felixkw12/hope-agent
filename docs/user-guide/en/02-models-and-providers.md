@@ -319,6 +319,8 @@ New installations enable **Free multi-engine search** by default: Brave web sear
 
 This native implementation takes inspiration from DDGS's multi-engine fallback and does not run the original Python DDGS package. Keyless access cannot guarantee availability: upstream rate limits, network restrictions, and page changes can still cause failures. Country and language filters are applied on a best-effort basis according to upstream support; an explicit freshness filter prevents fallback to 360 Search, which does not support it.
 
+When running `hope-agent server setup`, the search-provider step also offers Free multi-engine search without asking for credentials. New configurations select it by default; existing configurations select their first enabled provider, and the order changes only after you confirm a choice.
+
 | Advanced setting | What it does |
 | --- | --- |
 | Default result count | Number of results returned each time (1–10) |
