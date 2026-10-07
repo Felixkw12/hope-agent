@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Codex 工具续轮**：修复工具执行后及中断恢复时调用标识混用导致的 400 错误，已有会话历史可兼容继续。 (#811)
+
 ## [0.63.0] - 2026-10-06
 
 ### Added

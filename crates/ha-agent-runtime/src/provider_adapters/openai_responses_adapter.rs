@@ -1417,11 +1417,12 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         );
         for et in executed {
             if !replayed_call_ids.contains(&et.call_id) {
+                // A synthetic call has no provider-owned item ID. Its
+                // invocation ID belongs only in call_id, never in id.
                 crate::context_compact::push_and_stamp(
                     history,
                     json!({
                         "type": "function_call",
-                        "id": et.call_id,
                         "call_id": et.call_id,
                         "name": responses_external_tool_name(&et.name),
                         "arguments": et.arguments,
@@ -2463,6 +2464,77 @@ mod tests {
 
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0]["call_id"], "call_1");
+    }
+
+    #[test]
+    fn responses_and_codex_synthesized_calls_round_trip_without_item_ids() {
+        let responses = OpenAIResponsesStreamingAdapter {
+            api_key: "",
+            base_url: "https://api.openai.com",
+            model: "gpt-test",
+            reasoning: None,
+        };
+        let codex = super::super::codex_adapter::CodexStreamingAdapter {
+            access_token: "",
+            account_id: "",
+            model: "gpt-test",
+            reasoning: None,
+        };
+        let outcome = RoundOutcome {
+            text: String::new(),
+            thinking: String::new(),
+            tool_calls: vec![],
+            provider_history_items: vec![],
+            usage: ChatUsage::default(),
+            ttft_ms: None,
+            stop_reason: None,
+        };
+        for adapter in [&responses as &dyn StreamingChatAdapter, &codex] {
+            let mut history = vec![serde_json::json!({"role":"user", "content":"use tools"})];
+            for (round, name) in [(0, "skill"), (1, "tool_search")] {
+                let call_id = format!("call_{round}");
+                adapter.append_round_to_history(
+                    &mut history,
+                    round,
+                    &outcome,
+                    &[ExecutedTool {
+                        model_call_ordinal: 0,
+                        call_id: call_id.clone(),
+                        name: name.into(),
+                        arguments: "{}".into(),
+                        clean_result: "done".into(),
+                        result_admission: None,
+                    }],
+                );
+                let call = history
+                    .iter()
+                    .find(|item| item["type"] == "function_call" && item["call_id"] == call_id)
+                    .unwrap();
+                assert!(
+                    call.get("id").is_none(),
+                    "synthesis must not invent a provider item ID: {call}"
+                );
+                adapter.normalize_history(&mut history);
+                let req = super::super::test_support::round_request(&history);
+                let prepared = adapter.prepare_round_request(&req).unwrap();
+                let wire: Value = serde_json::from_slice(prepared.body().as_ref()).unwrap();
+                let input = wire["input"].as_array().unwrap();
+                assert_eq!(
+                    input
+                        .iter()
+                        .filter(|item| item["type"] == "function_call")
+                        .count(),
+                    round as usize + 1
+                );
+                assert!(input
+                    .iter()
+                    .filter(|item| item["type"] == "function_call")
+                    .all(|item| item.get("id").is_none()));
+                assert!(input.iter().any(
+                    |item| item["type"] == "function_call_output" && item["call_id"] == call_id
+                ));
+            }
+        }
     }
 
     #[test]
