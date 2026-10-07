@@ -447,10 +447,12 @@ SSE 事件处理：
 [
   { "role": "user", "content": "问题" },
   { "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "回复" }], "status": "completed" },
-  { "type": "function_call", "id": "fc_xxx", "call_id": "fc_xxx", "name": "read", "arguments": "{}" },
-  { "type": "function_call_output", "call_id": "fc_xxx", "output": "文件内容" }
+  { "type": "function_call", "id": "fc_xxx", "call_id": "call_xxx", "name": "read", "arguments": "{}" },
+  { "type": "function_call_output", "call_id": "call_xxx", "output": "文件内容" }
 ]
 ```
+
+`function_call.id` 是服务端条目标识，`call_id` 是工具执行及结果配对标识，二者不可混用。[官方函数调用示例](https://developers.openai.com/api/docs/guides/function-calling) 分别使用 `fc_*` 与 `call_*`；[创建接口](https://developers.openai.com/api/reference/resources/responses/methods/create) 的输入条目 `id` 为可选。原始条目可用时保留其 `id`、`namespace` 等服务端字段；缺少原始条目的合成调用及中断恢复只写 `call_id`，省略 `id`。历史标准化对旧 `id == call_id` 且不以 `fc` 开头的错误条目移除 `id`，保留其余字段与上下文标注，不改写工具结果的配对标识。
 
 ### 4.4 Codex OAuth API
 
@@ -585,7 +587,7 @@ flowchart LR
 
 | 输入形态 | 转换 |
 |---------|------|
-| 原生 Responses 项 | 直通 |
+| 原生 Responses 项 | 保留原始字段；旧合成 `function_call` 的错误重复 `id` 按 §4.3 移除 |
 | Anthropic tool_use / tool_result 数组 | 跳过（Responses 用 function_call） |
 | Anthropic content 数组 | 提取 text → `{ role, content: text }` |
 | `reasoning_content` 字段 | 移除 |

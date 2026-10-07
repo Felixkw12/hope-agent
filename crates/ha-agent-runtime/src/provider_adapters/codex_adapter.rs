@@ -397,11 +397,12 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         );
         for et in executed {
             if !replayed_call_ids.contains(&et.call_id) {
+                // Provider item IDs (fc_*) and invocation IDs (call_*)
+                // are distinct; no item ID is available for synthesis.
                 crate::context_compact::push_and_stamp(
                     history,
                     json!({
                         "type": "function_call",
-                        "id": et.call_id,
                         "call_id": et.call_id,
                         "name": et.name,
                         "arguments": et.arguments,

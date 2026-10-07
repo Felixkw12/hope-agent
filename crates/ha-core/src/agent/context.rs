@@ -2459,9 +2459,24 @@ impl AssistantAgent {
                 // Streamed thinking is still surfaced to the UI live; it just
                 // never persists into history.
                 "reasoning" => continue,
-                // Native Responses API items — pass through
+                "function_call" => {
+                    let mut call = item.clone();
+                    // Older synthesized history confused the invocation ID
+                    // with the optional provider item ID. Remove only that
+                    // invalid duplicate; keep genuine provider envelopes.
+                    if let Some(id) = item.get("id").and_then(|id| id.as_str()) {
+                        if !id.starts_with("fc")
+                            && item.get("call_id").and_then(|id| id.as_str()) == Some(id)
+                        {
+                            if let Some(fields) = call.as_object_mut() {
+                                fields.remove("id");
+                            }
+                        }
+                    }
+                    result.push(call);
+                }
+                // Other native Responses API items — pass through
                 "message"
-                | "function_call"
                 | "function_call_output"
                 | "tool_search_call"
                 | "tool_search_output"
@@ -3480,6 +3495,44 @@ mod responses_history_tests {
         ]);
         assert_eq!(merged.len(), 1);
         assert!(crate::context_compact::is_side_snapshot(&merged[0]));
+    }
+
+    #[test]
+    fn responses_history_repairs_legacy_call_ids_without_losing_provider_metadata() {
+        let mut legacy = json!({
+            "type": "function_call", "id": "call_old", "call_id": "call_old",
+            "name": "read", "arguments": "{}", "namespace": "files"
+        });
+        crate::context_compact::mark_side_snapshot(&mut legacy);
+        let native = json!({
+            "type": "function_call", "id": "fc_native", "call_id": "call_native",
+            "name": "read", "arguments": "{}", "namespace": "files",
+            "provider_future_field": "keep"
+        });
+        let same_valid_id = json!({
+            "type": "function_call", "id": "fc_legacy", "call_id": "fc_legacy",
+            "name": "read", "arguments": "{}"
+        });
+        let output = json!({
+            "type": "function_call_output", "call_id": "call_old", "output": "done"
+        });
+        let history = vec![
+            legacy.clone(),
+            native.clone(),
+            same_valid_id.clone(),
+            output.clone(),
+        ];
+        let normalized = AssistantAgent::normalize_history_for_responses(&history);
+        legacy.as_object_mut().unwrap().remove("id");
+        assert_eq!(normalized, vec![legacy, native, same_valid_id, output]);
+        assert_eq!(
+            history[0]["id"], "call_old",
+            "input history must stay untouched"
+        );
+        assert_eq!(
+            AssistantAgent::normalize_history_for_responses(&normalized),
+            normalized
+        );
     }
 
     #[test]
